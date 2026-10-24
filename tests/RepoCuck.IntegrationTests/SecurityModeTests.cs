@@ -43,6 +43,32 @@ public class SecurityModeTests(PostgresFixture pg)
         Assert.Contains("__Host-repocuck.af", cookies); Assert.Contains("secure", cookies, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Theory]
+    [InlineData("192.168.0.21/24,172.30.0.0/24")]      // the comma form from the docker-compose.yml environment block
+    [InlineData("192.168.0.21/24, 172.30.0.0/24")]
+    [InlineData("192.168.0.21/24 172.30.0.0/24")]
+    [InlineData("192.168.0.21/24;172.30.0.0/24")]
+    public async Task Trusted_proxies_accepts_a_list_separated_by_comma_space_or_semicolon(string value)
+    {
+        // peer 172.30.0.1 is the docker bridge gateway, which is what a published port looks like from inside the container
+        using var f = await Make(x => { HttpsFront(x, peer: "172.30.0.1"); x.Settings["Security:TrustedProxies"] = value; });
+        var (st, _, _) = await f.RawGet("/login", q => { q.Headers.Host = "apt.example.com"; q.Headers.Add("X-Forwarded-Proto", "https"); });
+        Assert.Equal(HttpStatusCode.OK, st);
+    }
+
+    [Fact]
+    public async Task Indexed_environment_form_is_not_supported_and_fails_loudly_instead_of_trusting_nobody_silently()
+    {
+        // Security__TrustedProxies__0 / __1 bind to child keys of a string setting, which is ignored -> empty -> startup validation error
+        using var f = await Make(x =>
+        {
+            x.Settings["Security:PublicScheme"] = "https"; x.Settings["REPOCUCK:BASE_URL"] = "https://apt.example.com";
+            x.Settings["Security:TrustedProxies:0"] = "192.168.0.21/24"; x.Settings["Security:TrustedProxies:1"] = "172.30.0.0/24";
+        });
+        var e = Assert.Throws<InvalidOperationException>(() => f.CreateClient());
+        Assert.Contains("TrustedProxies", e.Message);
+    }
+
     [Fact]
     public async Task Forwarded_headers_from_untrusted_peers_are_ignored()
     {

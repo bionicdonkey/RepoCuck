@@ -70,6 +70,14 @@ Notes:
   `X-Forwarded-Proto`, treats every request as plain HTTP and answers with a 301 redirect to HTTPS (a redirect loop in the
   browser); the app also refuses to start with `PublicScheme=https` and no trusted proxy. Connections from other addresses
   cannot spoof forwarded headers, but still firewall port 8080 to the proxy.
+* **Docker and the source address.** With a published port the app can see the connection as coming from the *bridge gateway* of
+  its compose network (for the reference file `172.30.0.1`) rather than from your proxy's LAN address; this depends on the Docker
+  setup (userland proxy, rootless Docker, Docker Desktop, traffic from the docker host itself). If the redirect loop persists with the
+  proxy's own IP listed, list the gateway/network as well, e.g.
+  `Security__TrustedProxies: 192.168.0.21/32,172.30.0.0/24`. To see what the app really sees, `curl -v` it from the proxy host and
+  look at the connection in `docker logs`, or run `docker network inspect <project>_internal` for the gateway. Trusting the gateway
+  means *anything that reaches the published port* may set forwarded headers, so bind the port to the LAN address you need and
+  firewall it to the proxy host (`ufw`/nftables rules for the `DOCKER-USER` chain, since published ports bypass `ufw`'s normal rules).
 * Leave response compression off (or exclude `/apt/*`): the files are already compressed.
 * With `tls internal` every client must trust Caddy's root CA (and have `ca-certificates`) for `apt` to fetch over HTTPS.
   If you would rather not distribute a CA, serve plain HTTP on the LAN instead: `Security__PublicScheme=http`,
@@ -124,7 +132,7 @@ Environment variables use `__` as the section separator. Security-sensitive keys
 | `REPOCUCK__ROLE` | `all` | `web`/`worker` split is experimental (needs a shared `/data`) |
 | `REPOCUCK__MIGRATE` | `apply` | `none` + `docker run … --migrate` for init-container style migrations |
 | `Security__PublicScheme` | `https` | `https` or `http` (LAN mode) |
-| `Security__TrustedProxies` | empty | CIDRs allowed to set forwarded headers; required for `https` unless `Security__AssumeTlsFront=true` |
+| `Security__TrustedProxies` | empty | CIDRs allowed to set forwarded headers, as **one string** separated by commas (spaces or semicolons also work): `192.168.0.21/24,172.30.0.0/24`. The indexed form `Security__TrustedProxies__0` is **not** supported (it is ignored, and `https` then refuses to start). Required for `https` unless `Security__AssumeTlsFront=true` |
 | `Security__ClientIpHeader` | `X-Forwarded-For` | `CF-Connecting-IP` behind Cloudflare |
 | `Security__HstsMaxAgeDays` | `365` | HTTPS only |
 | `Security__TrustedHosts` | from `BASE_URL` | extra allowed `Host` values, comma separated |
