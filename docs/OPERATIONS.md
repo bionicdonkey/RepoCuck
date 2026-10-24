@@ -145,6 +145,118 @@ Environment variables use `__` as the section separator. Security-sensitive keys
 * Clients: the landing page at `/apt/` gives the exact commands, including the recommended pin
   (`Pin-Priority: 400`, so a RepoCuck package never silently replaces a distribution package of the same name).
 
+### Adding the repository to a client (Debian / Ubuntu)
+
+The landing page at `https://<host>/apt/` shows these commands with your hostname already filled in. Run them as root (or with `sudo`)
+on each machine. Supported clients: Debian 11/12/13 and Ubuntu 22.04/24.04 (any `apt` ≥ 2.2).
+
+**1. Install the signing key**
+
+```bash
+sudo install -d -m 0755 /etc/apt/keyrings
+curl -fsSL https://apt.example.com/apt/repocuck.gpg | sudo tee /etc/apt/keyrings/repocuck.gpg >/dev/null
+```
+
+`repocuck.gpg` is the binary keyring that `signed-by=` expects. `repocuck.asc` is the armored copy: if you prefer it, save it as
+`repocuck.asc` and point `signed-by=` at that file (the extension decides how apt reads the file, so never save armored text as
+`.gpg`). Compare the fingerprint with the one on the landing page or in Admin → Key:
+`gpg --show-keys /etc/apt/keyrings/repocuck.gpg`.
+
+**2. Add the source**, either in the classic one-line format:
+
+```bash
+echo "deb [signed-by=/etc/apt/keyrings/repocuck.gpg] https://apt.example.com/apt stable main" \
+  | sudo tee /etc/apt/sources.list.d/repocuck.list
+```
+
+or in deb822 format (`/etc/apt/sources.list.d/repocuck.sources`):
+
+```
+Types: deb
+URIs: https://apt.example.com/apt
+Suites: stable
+Components: main
+Signed-By: /etc/apt/keyrings/repocuck.gpg
+```
+
+Optionally restrict the architectures apt fetches with `[arch=amd64,arm64 signed-by=…]` (one-line) or `Architectures: amd64 arm64`
+(deb822). Without it apt fetches every architecture the repository advertises that the machine has enabled.
+
+**3. (Recommended) Pin the repository below your distribution**, so a package here can never silently replace a distribution
+package of the same name, while packages the distribution lacks still install and upgrade. Create
+`/etc/apt/preferences.d/repocuck`:
+
+```
+Package: *
+Pin: release o=RepoCuck
+Pin-Priority: 400
+```
+
+To deliberately take a package from RepoCuck even though the distribution has one, install it explicitly with
+`sudo apt-get install -t stable <package>` (or raise the priority for that package in the same file).
+
+**4. Update and install**
+
+```bash
+sudo apt-get update            # should print no W:/E: lines for the RepoCuck source
+apt-cache policy <package>     # shows RepoCuck as a source and the candidate version
+sudo apt-get install <package>
+```
+
+Updates then arrive with the normal `apt-get upgrade` / `unattended-upgrades`.
+
+Other cases:
+
+* **Prereleases (opt-in):** use `testing` instead of `stable` (the suite exists only if the operator enabled it). It contains the
+  stable packages too and is marked `NotAutomatic`, so it is never preferred unless you ask for it.
+* **Another architecture** (for example fetching an arm64 package on an amd64 host):
+  `sudo dpkg --add-architecture arm64 && sudo apt-get update`, then `apt-get download <package>:arm64`. The architecture must have
+  been enabled for that repository on the server.
+* **Internal CA:** if the server uses a private CA (for example Caddy `tls internal`), install the CA certificate on the client first
+  (copy it to `/usr/local/share/ca-certificates/` as a `.crt` file and run `sudo update-ca-certificates`) and make sure the
+  `ca-certificates` package is installed, or apt will reject the TLS connection.
+* **Plain-HTTP LAN setups:** use an `http://` URI. The key and the signed metadata still protect package integrity.
+* **Many machines:** the key, the source and the pin are three small files, so they are easy to roll out with configuration
+  management. With Ansible:
+
+  ```yaml
+  - ansible.builtin.get_url:
+      url: https://apt.example.com/apt/repocuck.gpg
+      dest: /etc/apt/keyrings/repocuck.gpg
+      mode: "0644"
+  - ansible.builtin.copy:
+      dest: /etc/apt/sources.list.d/repocuck.sources
+      content: |
+        Types: deb
+        URIs: https://apt.example.com/apt
+        Suites: stable
+        Components: main
+        Signed-By: /etc/apt/keyrings/repocuck.gpg
+  - ansible.builtin.copy:
+      dest: /etc/apt/preferences.d/repocuck
+      content: |
+        Package: *
+        Pin: release o=RepoCuck
+        Pin-Priority: 400
+  - ansible.builtin.apt: { update_cache: true }
+  ```
+
+  (`/etc/apt/keyrings` must exist; add an `ansible.builtin.file` task with `state: directory`, mode `0755` if your base image lacks it.)
+* **Remove it:** delete `/etc/apt/sources.list.d/repocuck.list` (or `.sources`), `/etc/apt/preferences.d/repocuck` and
+  `/etc/apt/keyrings/repocuck.gpg`, then run `sudo apt-get update`. Installed packages stay installed but no longer receive updates.
+
+Troubleshooting on the client:
+
+| Symptom | Cause / fix |
+| --- | --- |
+| `NO_PUBKEY` / `The following signatures couldn't be verified` | wrong or missing key file, or `signed-by=` points at the wrong path; re-download `repocuck.gpg` (during a key rotation the file contains both keys) |
+| `The repository … is not signed` | the source line is missing `signed-by=`, or the key file is armored but named `.gpg` |
+| `Release file … is expired` | the server's daily refresh stopped (operator: check the `repocuck_index_age_seconds` alert); also check the client clock |
+| `Conflicting values set for option Signed-By` | the same URI is configured twice (for example both `.list` and `.sources`); keep one |
+| `301 Moved Permanently` or redirect loops | the server and its proxy disagree about HTTPS (operator: see the proxy sections above) |
+| `Certificate verification failed` | a private CA is not trusted on the client (see above) |
+| A package comes from the distribution, not RepoCuck | the priority-400 pin is working as intended; use `apt-get install -t stable <package>` |
+
 ## 4. Single sign-on
 
 Admin → SSO. Register `https://<host>/signin-oidc/<slug>` as the redirect URI (and `…/signout-callback-oidc/<slug>` for logout) at

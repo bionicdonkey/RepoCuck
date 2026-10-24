@@ -51,7 +51,8 @@ docker compose up -d                          # app + PostgreSQL + cloudflared (
                                               # or `up -d app db` behind your own proxy: see docs/OPERATIONS.md)
 ```
 
-Then sign in as `admin`, request/approve a repository, and on clients follow the commands on `https://<host>/apt/`:
+Then sign in as `admin`, request/approve a repository, and on clients follow the commands on `https://<host>/apt/`
+(full client guide with deb822 format, pinning, Ansible and troubleshooting: [`docs/OPERATIONS.md`](docs/OPERATIONS.md#adding-the-repository-to-a-client-debian--ubuntu)):
 
 ```bash
 sudo install -d -m 0755 /etc/apt/keyrings
