@@ -1,4 +1,5 @@
 using System.Net;
+using Microsoft.Extensions.Logging;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.DataProtection;
@@ -17,6 +18,14 @@ if (args.Length > 0 && (args[0] is "--migrate" or "admin")) return await RepoCuc
 var builder = WebApplication.CreateBuilder(args);
 var cfg = builder.Configuration;
 builder.WebHost.ConfigureKestrel(k => { k.AddServerHeader = false; k.Limits.MaxRequestHeadersTotalSize = 16 * 1024; k.Limits.MaxRequestLineSize = 8 * 1024; k.Limits.MaxRequestBodySize = 1024 * 1024; });
+
+// Structured JSON logs with trace/span ids (correlation) unless a developer opts for the simple console format.
+if (cfg["Logging:Format"] != "simple")
+{
+    builder.Logging.ClearProviders();
+    builder.Logging.AddJsonConsole(o => { o.IncludeScopes = true; o.UseUtcTimestamp = true; o.TimestampFormat = "yyyy-MM-ddTHH:mm:ss.fffZ"; });
+}
+builder.Logging.Configure(o => o.ActivityTrackingOptions = ActivityTrackingOptions.TraceId | ActivityTrackingOptions.SpanId);
 
 var sec = cfg.GetSection("Security").Get<SecurityOptions>() ?? new SecurityOptions();
 var auth = cfg.GetSection("Auth").Get<AuthOptions>() ?? new AuthOptions();
@@ -87,7 +96,6 @@ builder.Services.AddRateLimiter(o =>
     o.AddPolicy("apt", ctx => RateLimitPartition.GetTokenBucketLimiter(ctx.ClientAddress(), _ => new TokenBucketRateLimiterOptions
     { TokenLimit = Math.Max(100, aptLimit / 6), TokensPerPeriod = Math.Max(1, aptLimit / 6), ReplenishmentPeriod = TimeSpan.FromSeconds(10), QueueLimit = 0 }));
 });
-builder.Services.AddSingleton<Metrics>();
 
 var app = builder.Build();
 

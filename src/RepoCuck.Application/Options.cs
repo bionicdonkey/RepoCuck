@@ -14,7 +14,6 @@ public sealed class SecurityOptions
 public sealed class AuthOptions
 {
     public bool LocalEnabled { get; set; } = true;
-    public string RegistrationMode { get; set; } = "closed";
     public int SessionIdleMinutes { get; set; } = 60;
     public int SessionAbsoluteHours { get; set; } = 12;
     public int MaxFailedAttempts { get; set; } = 5;

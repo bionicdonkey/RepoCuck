@@ -16,7 +16,7 @@ public sealed record PublishOutcome(string Suite, bool Skipped, long GenerationN
 
 public sealed class PublisherService(
     IDbContextFactory<AppDbContext> dbf, NpgsqlDataSource ds, IBlobStore blobs, ISigner signer, IClock clock,
-    ArbitrationService arbitration, SettingsService settings, IOptions<AptOptions> apt, IOptions<RetentionOptions> ret,
+    ArbitrationService arbitration, SettingsService settings, Metrics metrics, IOptions<AptOptions> apt, IOptions<RetentionOptions> ret,
     ILogger<PublisherService> log)
 {
     private static bool _xzWarned;
@@ -32,7 +32,22 @@ public sealed class PublisherService(
             await arbitration.PromoteIneligibleAsync(db, ct);
             var suites = await db.AptSuites.Where(s => s.IsEnabled && (suiteId == null || s.Id == suiteId)).ToListAsync(ct);
             var results = new List<PublishOutcome>();
-            foreach (var suite in suites) results.Add(await PublishSuiteAsync(db, suite, force, ct));
+            foreach (var suite in suites)
+            {
+                var started = clock.UtcNow;
+                try
+                {
+                    var outcome = await PublishSuiteAsync(db, suite, force, ct);
+                    results.Add(outcome);
+                    metrics.Inc("repocuck_index_generation_total", $"suite=\"{suite.Name}\",result=\"{(outcome.Skipped ? "skipped" : "ok")}\"");
+                    if (!outcome.Skipped) metrics.Observe("repocuck_index_generation_seconds", (clock.UtcNow - started).TotalSeconds, $"suite=\"{suite.Name}\"");
+                }
+                catch
+                {
+                    metrics.Inc("repocuck_index_generation_total", $"suite=\"{suite.Name}\",result=\"failed\"");
+                    throw;
+                }
+            }
             return results;
         }
         finally

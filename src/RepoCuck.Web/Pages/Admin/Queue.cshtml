@@ -23,7 +23,7 @@
     }
 }
 @{ ViewData["Title"] = "Job queue"; }
-<div class="row"><h1 style="flex:1">Job queue</h1><form method="post" asp-page-handler="Rebuild"><button class="secondary" type="submit">Rebuild APT indices</button></form></div>
+<div class="row"><h1 class="grow">Job queue</h1><form method="post" asp-page-handler="Rebuild"><button class="secondary" type="submit">Rebuild APT indices</button></form></div>
 <table><thead><tr><th>Kind</th><th>State</th><th>Attempts</th><th>Run after</th><th>Last error</th><th></th></tr></thead><tbody>
 @foreach (var j in Jobs) { <tr><td>@j.Kind</td><td><span class="badge @j.State">@j.State</span></td><td>@j.Attempts/@j.MaxAttempts</td><td>@j.RunAfter.ToString("u")</td><td>@j.LastError</td>
   <td>@if (j.State is "dead" or "failed") { <form method="post" asp-page-handler="Retry" asp-route-id="@j.Id"><button class="secondary" type="submit">Retry</button></form> }</td></tr> }

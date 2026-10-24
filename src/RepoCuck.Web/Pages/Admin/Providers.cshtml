@@ -79,7 +79,7 @@
 @foreach (var p in Providers)
 {
   <section class="card">
-    <h2 style="margin-top:0">@p.DisplayName <code>@p.Slug</code> <span class="badge @(p.Enabled ? "active" : "removed")">@(p.Enabled ? "enabled" : "disabled")</span></h2>
+    <h2 class="flush">@p.DisplayName <code>@p.Slug</code> <span class="badge @(p.Enabled ? "active" : "removed")">@(p.Enabled ? "enabled" : "disabled")</span></h2>
     <p>@p.Authority · client <code>@p.ClientId</code> · secret @(p.ClientSecretEnc is not null || p.ClientSecretFile is not null ? "set" : "not set") · scopes <code>@p.Scopes</code> · groups claim <code>@p.GroupClaim</code></p>
     <div class="row">
       <form method="post" asp-page-handler="Test" asp-route-id="@p.Id"><button class="secondary" type="submit">Test discovery &amp; keys</button></form>

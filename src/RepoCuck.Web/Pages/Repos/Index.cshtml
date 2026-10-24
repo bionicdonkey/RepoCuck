@@ -17,7 +17,7 @@
     }
 }
 @{ ViewData["Title"] = "Repositories"; }
-<div class="row"><h1 style="flex:1">Repositories</h1><a class="btn" href="/requests/new">Request a repository</a></div>
+<div class="row"><h1 class="grow">Repositories</h1><a class="btn" href="/requests/new">Request a repository</a></div>
 <form method="get" class="row" role="search">
   <label class="inline">Search <input name="q" value="@Q" type="search" data-filter="#repos" /></label>
   <label class="inline">State

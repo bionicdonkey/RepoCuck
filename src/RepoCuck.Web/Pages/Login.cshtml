@@ -56,6 +56,6 @@
 {
   <h2>Or sign in with</h2>
   <div class="row">
-  @foreach (var p in Providers) { <a class="btn secondary" style="background:transparent;color:var(--accent)" href="/auth/oidc/@p.Slug/signin?returnUrl=@Uri.EscapeDataString(ReturnUrl ?? "/repos")">@p.Name</a> }
+  @foreach (var p in Providers) { <a class="btn outline" href="/auth/oidc/@p.Slug/signin?returnUrl=@Uri.EscapeDataString(ReturnUrl ?? "/repos")">@p.Name</a> }
   </div>
 }

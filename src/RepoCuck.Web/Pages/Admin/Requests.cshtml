@@ -47,7 +47,7 @@
 @foreach (var g in Groups)
 {
   <section class="card">
-    <h2 style="margin-top:0"><a href="/repos/@g.RepoId">@g.Name</a> <span class="badge @g.State">@g.State</span></h2>
+    <h2 class="flush"><a href="/repos/@g.RepoId">@g.Name</a> <span class="badge @g.State">@g.State</span></h2>
     <p class="muted">@g.Description · license @(g.License ?? "unknown") · @g.Assets asset(s) inspected, @g.Failed failed · currently @(g.Archs.Length == 0 ? "no" : string.Join(", ", g.Archs)) architectures</p>
     @if (g.Findings.Count > 0) {
       <details><summary>@g.Findings.Count package(s) found in quarantine inspection @if (g.Findings.Any(f => f.State == "quarantined")) { <span class="badge quarantined">@g.Findings.Count(f => f.State == "quarantined") flagged</span> }</summary>
@@ -66,7 +66,7 @@
               @foreach (var a in Allow) { <label class="inline"><input type="checkbox" name="Archs" value="@a" checked="@(r.Architectures.Contains(a) || g.Archs.Contains(a))" /> @a</label> }
             </fieldset>
             @if (r.Kind == "add_repo") { <label class="inline"><input type="checkbox" name="IncludePrereleases" value="true" /> prereleases</label>
-              <label class="inline">holdback h <input name="HoldbackHours" type="number" min="0" max="720" value="0" style="width:5em" /></label> }
+              <label class="inline">holdback h <input name="HoldbackHours" type="number" min="0" max="720" value="0" class="w5" /></label> }
             <button type="submit">Approve</button>
           </form>
           <form method="post" asp-page-handler="Reject" asp-route-id="@r.Id" class="row">

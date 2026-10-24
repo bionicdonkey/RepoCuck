@@ -48,6 +48,12 @@ public static class SystemEndpoints
                                      join su in db.AptSuites on c.SuiteId equals su.Id
                                      select new { su.Name, gen.ActivatedAt }).ToListAsync(ct))
                 gauges.Add(($"repocuck_index_age_seconds{{suite=\"{s.Name}\"}}", s.ActivatedAt is null ? -1 : (now - s.ActivatedAt.Value).TotalSeconds));
+            try
+            {
+                var exp = await ctx.RequestServices.GetRequiredService<ISigner>().GetKeyExpiryAsync(ct);
+                if (exp is not null) gauges.Add(("repocuck_signing_key_expiry_seconds", (exp.Value - now).TotalSeconds));
+            }
+            catch { /* signer unavailable (web-only role) */ }
             gauges.Add(("repocuck_blob_bytes", await db.Blobs.SumAsync(b => (long?)b.SizeBytes, ct) ?? 0));
             return Results.Text(m.Render(gauges), "text/plain; version=0.0.4");
         }).AllowAnonymous();

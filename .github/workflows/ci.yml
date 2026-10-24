@@ -1,0 +1,36 @@
+# Works on GitHub Actions and on Gitea Actions (act_runner with a Docker socket).
+name: ci
+on:
+  push: { branches: [main] }
+  pull_request:
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: 10.0.x }
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends gnupg gpgv xz-utils dpkg
+      - run: dotnet restore --locked-mode
+      - run: dotnet build --no-restore -c Release -warnaserror
+      - run: dotnet format whitespace --verify-no-changes
+      - run: dotnet list package --vulnerable --include-transitive 2>&1 | tee vuln.txt; ! grep -q "has the following vulnerable packages" vuln.txt
+      - run: dotnet test tests/RepoCuck.UnitTests --no-build -c Release
+      - run: dotnet test tests/RepoCuck.IntegrationTests --no-build -c Release   # Testcontainers needs the Docker socket
+  image-and-e2e:
+    needs: build-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -f deploy/Dockerfile -t repocuck:dev .
+      - name: Scan image (fail on high/critical with a fix)
+        uses: aquasecurity/trivy-action@0.28.0
+        with: { image-ref: repocuck:dev, severity: 'HIGH,CRITICAL', ignore-unfixed: true, exit-code: '1' }
+      - run: SKIP_BUILD=1 tests/e2e/run_e2e.sh
+      - run: python3 tests/e2e/restore_drill.py
+      - name: SBOM
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin
+          syft repocuck:dev -o cyclonedx-json > sbom.cdx.json
+      - uses: actions/upload-artifact@v4
+        with: { name: sbom, path: sbom.cdx.json }

@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Draft v1.1 — for review |
+| Status | v1.1 — implemented in RepoCuck 1.0 (deviations: Appendix E) |
 | Date | 2026-10-24 |
 | Target | .NET 10 (LTS), PostgreSQL 17+, Linux containers |
 | Companion | [`PLAN.md`](./PLAN.md) |
@@ -1197,8 +1197,7 @@ architecture on a client: `sudo dpkg --add-architecture arm64 && sudo apt-get up
 - Password: 12–128 chars, no composition rules (NIST 800-63B), rejected if in a bundled
   top-10k list or equal to the username; PBKDF2-SHA256 with 600,000 iterations
   (`PasswordHasherOptions.IterationCount`) and 128-bit salt. Argon2id is a drop-in option.
-- Registration mode `closed` (default), `invite` (one-time signed links, 7-day expiry) or
-  `open` (new users are Members). `open` is refused when `Auth:LocalEnabled=false`.
+- Accounts are created by Admins or provisioned just-in-time from SSO. Self-registration modes (`invite`/`open`) are not implemented (Appendix E).
 - Lockout: failures are counted per **(username, client IP)** pair (5 → 15 min) and, as a
   softer per-account control, 20 failures from any IPs in 15 min → progressive delay (not a
   hard lock), so an attacker cannot lock the Admin out from elsewhere. A per-IP limiter
@@ -1504,7 +1503,6 @@ OIDC client secrets).
 | `Security__HstsMaxAgeDays` | `365` | only when `PublicScheme=https`; `0` disables |
 | `Security__TrustedHosts` | from `BASE_URL` | host header allow-list |
 | `Auth__LocalEnabled` | `true` | |
-| `Auth__RegistrationMode` | `closed` | `closed`, `invite`, `open` |
 | `Auth__SessionIdleMinutes` | `60` | |
 | `Auth__SessionAbsoluteHours` | `12` | |
 | `Auth__MaxFailedAttempts` | `5` | per (username, IP) |
@@ -2137,6 +2135,32 @@ SHA512: 4a7d...ff
 | Generation | Immutable signed set of indices for a suite |
 | Request | A Member's proposal to add a repository or architecture, decided by an Admin |
 | Quarantine | Fetched and inspected but not published (proposed repositories, flagged variants) |
+
+---
+
+### E. Implementation status and deviations (RepoCuck 1.0)
+
+Everything in this specification is implemented and covered by automated tests (unit, Testcontainers integration with a mock
+OIDC provider, and a Docker end-to-end suite driving a real Debian `apt` client plus a backup/restore drill), except for the
+deviations below.
+
+| Area | Spec | As built |
+| --- | --- | --- |
+| Persistence | EF Core | EF Core for data access; the schema is applied from embedded SQL migrations (`0001_initial`, `0002_tombstone`) under an advisory lock instead of EF migrations |
+| Layering | Use cases in `Application` | `Application` holds options, ports and pure policy; use-case services live in `Infrastructure/Services` next to EF Core |
+| Tombstones | Soft delete, GC later | `package_variants.tombstoned_at` added. Tombstones are hard-deleted after `max(GenerationHours, BlobGraceHours)`; their blobs are then reclaimed. Assets of retention-/admin-deleted versions are never re-ingested; assets of repo-ineligible tombstones return to `discovered` and variants are revived if the repository becomes publishable again |
+| Repository lifecycle | — | Added the Admin action `activate` (proposed/rejected → active) and `reinstate` (removed → active); `unblock` returns a repository to `proposed` |
+| Settings API | `GET /admin/settings/effective` | `GET/PATCH /admin/settings` returns the effective configuration; the architecture allow-list and reserved names are DB-backed, everything else is environment/file |
+| Accounts | `invite`/`open` registration, reset links | Admins create accounts or users arrive through SSO; Admin password resets issue a one-time temporary password |
+| Passwords | bundled top-10k list | small bundled denylist plus length/entropy checks |
+| Signing | rotation endpoint | `POST /admin/signing/rotate {start|complete}`; active key set is kept in `$GNUPGHOME/active-fingerprints` |
+| Observability | OpenTelemetry traces/metrics | JSON logs with trace/span ids and a Prometheus text endpoint (`/metrics`) with the counters/gauges listed in the operations guide; no OTLP exporter |
+| Process split | `web`/`worker` roles | accepted but experimental; requires a shared `/data` |
+| Database roles | `INSERT/SELECT`-only role for `audit_log` | append-only is enforced by a trigger; the app's role also owns the schema |
+| Accessibility | axe-core run | semantic markup, labelled controls, skip link, focus styles and CSP-clean markup are asserted in an integration test; no axe-core/manual screen-reader audit |
+| Performance | k6 targets verified | `tests/load/apt.js` is provided; targets were spot-checked locally, not certified |
+| Request pipeline | §2.3 order | exception handler → forwarded headers → security headers/scheme → host filtering → static files → routing → rate limiter → authentication → must-change-password gate → authorisation → API CSRF |
+| Login rate limit | per IP | counted on `POST /login` only (page loads are free) |
 
 ---
 

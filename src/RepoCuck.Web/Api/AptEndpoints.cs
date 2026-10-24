@@ -6,6 +6,7 @@ using Microsoft.Net.Http.Headers;
 using RepoCuck.Application;
 using RepoCuck.Domain;
 using RepoCuck.Infrastructure.Data;
+using RepoCuck.Infrastructure.Services;
 using RepoCuck.Web.Infrastructure;
 
 namespace RepoCuck.Web.Api;

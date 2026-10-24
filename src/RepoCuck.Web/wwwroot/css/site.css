@@ -25,3 +25,5 @@ button.link { background:none; border:0; color:var(--accent); padding:0; text-de
 pre { background:var(--card); border:1px solid var(--line); padding:12px; overflow-x:auto; border-radius:6px; }
 .grid2 { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:12px; }
 fieldset { border:1px solid var(--line); border-radius:6px; } legend { font-weight:600; }
+.grow { flex:1; } h2.flush { margin-top:0; } .w5 { width:5em; } .w14 { width:14em; }
+.btn.outline { background:transparent; color:var(--accent); }

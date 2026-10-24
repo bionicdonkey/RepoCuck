@@ -59,6 +59,7 @@ public static class ServiceCollectionExtensions
         s.AddSingleton<SettingsService>();
         s.AddSingleton<JobQueue>();
         s.AddSingleton<LoginThrottle>();
+        s.AddSingleton<Metrics>();
         s.AddSingleton<SetupTokenService>();
         s.AddScoped<ArbitrationService>();
         s.AddScoped<SyncService>();

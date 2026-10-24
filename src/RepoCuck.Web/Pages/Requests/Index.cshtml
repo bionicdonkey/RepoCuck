@@ -17,7 +17,7 @@
     }
 }
 @{ ViewData["Title"] = "My requests"; }
-<div class="row"><h1 style="flex:1">My requests</h1><a class="btn" href="/requests/new">New request</a></div>
+<div class="row"><h1 class="grow">My requests</h1><a class="btn" href="/requests/new">New request</a></div>
 @if (Rows.Count == 0) { <p class="muted">You have not requested anything yet.</p> } else {
 <table><thead><tr><th>When</th><th>Repository</th><th>Kind</th><th>Architectures</th><th>Status</th><th>Decision</th><th></th></tr></thead><tbody>
 @foreach (var r in Rows) {

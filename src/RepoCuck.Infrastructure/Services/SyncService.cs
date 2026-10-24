@@ -12,7 +12,7 @@ namespace RepoCuck.Infrastructure.Services;
 public sealed class SyncService(
     IDbContextFactory<AppDbContext> dbf, IGitHubClient gh, IBlobStore blobs, IClock clock, JobQueue jobs, ArbitrationService arbitration,
     IOptions<AptOptions> apt, IOptions<GitHubOptions> ghOpt, IOptions<PolicyOptions> policyOpt, SettingsService settings,
-    IAuditService audit, ILogger<SyncService> log)
+    IAuditService audit, Metrics metrics, ILogger<SyncService> log)
 {
     private static readonly string[] PermanentFailures = ["invalid_control", "digest_mismatch", "not_ar", "too_large", "unsupported_format", "no_debian_binary", "no_control", "bad_control_tar", "decompression_limit"];
 
@@ -83,6 +83,11 @@ public sealed class SyncService(
         }
 
         run.FinishedAt = clock.UtcNow;
+        metrics.Inc("repocuck_sync_total", $"result=\"{run.Status}\"");
+        metrics.Observe("repocuck_sync_duration_seconds", (run.FinishedAt.Value - run.StartedAt).TotalSeconds);
+        metrics.Inc("repocuck_assets_ingested_total", "result=\"ingested\"", run.AssetsIngested);
+        metrics.Inc("repocuck_assets_ingested_total", "result=\"excluded\"", run.AssetsExcluded);
+        metrics.Inc("repocuck_assets_ingested_total", "result=\"failed\"", run.AssetsFailed);
         repo.LastSyncedAt = clock.UtcNow;
         repo.UpdatedAt = clock.UtcNow;
         repo.NextSyncAt = repo.State == RepoState.Active ? NextSync(repo) : null;
@@ -101,6 +106,7 @@ public sealed class SyncService(
 
     private async Task FinishAsync(AppDbContext db, Repository repo, SyncRun run, string status, string category, string error, CancellationToken ct)
     {
+        metrics.Inc("repocuck_sync_total", $"result=\"{status}\"");
         run.Status = status; run.ErrorCategory = category; run.Error = error.Length > 500 ? error[..500] : error; run.FinishedAt = clock.UtcNow;
         repo.LastSyncStatus = status; repo.UpdatedAt = clock.UtcNow;
         if (repo.State == RepoState.Active)

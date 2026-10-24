@@ -76,7 +76,7 @@
     private void EnsureAdmin() { if (!User.IsAdmin()) throw new ServiceException("forbidden", "Admin role required.", 403); }
 }
 @{ ViewData["Title"] = Repo.FullName; var admin = User.IsAdmin(); }
-<div class="row"><h1 style="flex:1">@Repo.FullName <span class="badge @Repo.State">@Repo.State</span></h1><a href="@Repo.HtmlUrl" rel="noopener noreferrer">GitHub ↗</a></div>
+<div class="row"><h1 class="grow">@Repo.FullName <span class="badge @Repo.State">@Repo.State</span></h1><a href="@Repo.HtmlUrl" rel="noopener noreferrer">GitHub ↗</a></div>
 <p>@Repo.Description</p>
 @if (!string.IsNullOrEmpty(Repo.StateReason)) { <div class="flash error">Reason: @Repo.StateReason</div> }
 @if (Repo.State == "proposed") { <div class="flash">This repository is awaiting approval. Packages are inspected but not published.</div> }
@@ -121,7 +121,7 @@
     @foreach (var act in new[] { ("pause", "active"), ("resume", "paused"), ("remove", ""), ("block", ""), ("unblock", "blocked"), ("reinstate", "removed"), ("activate", "proposed"), ("activate", "rejected") })
     {
       if (act.Item2 == "" || act.Item2 == Repo.State)
-      { <form method="post" asp-page-handler="State" asp-route-action="@act.Item1"><input name="Reason" placeholder="reason (optional)" aria-label="Reason" style="width:14em" />
+      { <form method="post" asp-page-handler="State" asp-route-action="@act.Item1"><input name="Reason" placeholder="reason (optional)" aria-label="Reason" class="w14" />
           <button class="@(act.Item1 is "block" or "remove" ? "danger" : "secondary")" type="submit">@act.Item1</button></form> }
     }
   </div>
