@@ -29,6 +29,7 @@ services:
       Apt__EnableTesting: "true"
       Limits__RequestsPerHour: "100"
       Limits__LoginAttemptsPer5MinutesPerIp: "1000"
+      Limits__AptRequestsPerMinutePerIp: ${APT_LIMIT:-600}
       Jobs__WorkerConcurrency: "2"
     volumes:
       - appdata:/data

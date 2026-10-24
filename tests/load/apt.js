@@ -1,6 +1,6 @@
 // k6 load test for the APT read path (spec NFR-PERF-1/2): `k6 run -e BASE=https://apt.example.com -e PKG=pool/main/f/fooapp/fooapp_1.0.0_amd64.deb tests/load/apt.js`
 import http from 'k6/http';
-import { check } from 'k6';
+import { check, sleep } from 'k6';
 
 const BASE = __ENV.BASE || 'http://localhost:8080';
 const PKG = __ENV.PKG || '';
@@ -22,4 +22,5 @@ export function downloads() {
   if (!PKG) return;
   const r = http.get(`${BASE}/apt/${PKG}`, { tags: { kind: 'pool' } });
   check(r, { 'pool 200': (x) => x.status === 200 });
+  sleep(0.05);
 }
