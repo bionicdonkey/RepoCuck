@@ -47,7 +47,8 @@ Quick start:
 ```bash
 cd deploy && cp .env.example .env            # edit: DB_PASSWORD, REPOCUCK_BASE_URL, CLOUDFLARE_TUNNEL_TOKEN
 mkdir -p secrets && openssl rand -base64 24 > secrets/admin_password && openssl rand -base64 32 > secrets/gpg_passphrase
-docker compose up -d                          # app + PostgreSQL + cloudflared (or: -f docker-compose.caddy.yml)
+docker compose up -d                          # app + PostgreSQL + cloudflared (or: -f docker-compose.caddy.yml,
+                                              # or `up -d app db` behind your own proxy: see docs/OPERATIONS.md)
 ```
 
 Then sign in as `admin`, request/approve a repository, and on clients follow the commands on `https://<host>/apt/`:

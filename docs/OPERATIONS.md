@@ -33,9 +33,49 @@ Cloudflare notes:
 * **Cloudflare Access.** You can protect the UI and API with Access, but add a *bypass* policy for `/apt/*`: apt cannot do
   browser SSO.
 
-### Caddy (automatic HTTPS)
+### Bundled Caddy (automatic HTTPS)
 
 `docker compose -f docker-compose.caddy.yml up -d`, after editing `Caddyfile` with your hostname. Uses `X-Forwarded-For`.
+
+### Existing Caddy (or other proxy) on a separate host
+
+If you already run Caddy/nginx/Traefik on another machine, skip the bundled front: start only the app and database
+(`docker compose up -d app db` — this leaves `cloudflared` out) and publish the app port with an override. Compose loads
+`deploy/docker-compose.override.yml` automatically:
+
+```yaml
+services:
+  app:
+    ports: ["192.168.1.20:8080:8080"]              # the docker host's LAN IP, not 0.0.0.0
+    environment:
+      REPOCUCK__BASE_URL: https://apt.home.lan     # the name clients use; must equal the Host your proxy forwards
+      Security__PublicScheme: https
+      Security__TrustedProxies: 192.168.1.10/32    # your proxy host, as the app sees the connection
+      Security__ClientIpHeader: X-Forwarded-For
+```
+
+On the proxy host:
+
+```caddyfile
+apt.home.lan {
+    tls internal                                   # or your normal ACME / DNS-challenge setup
+    reverse_proxy 192.168.1.20:8080
+}
+```
+
+Notes:
+
+* No extra Caddy header configuration is needed: it sets `X-Forwarded-For/Proto/Host` itself and preserves `Host`.
+* `Security__TrustedProxies` must be the address the app sees your proxy connecting from. If it is wrong the app ignores
+  `X-Forwarded-Proto`, treats every request as plain HTTP and answers with a 301 redirect to HTTPS (a redirect loop in the
+  browser); the app also refuses to start with `PublicScheme=https` and no trusted proxy. Connections from other addresses
+  cannot spoof forwarded headers, but still firewall port 8080 to the proxy.
+* Leave response compression off (or exclude `/apt/*`): the files are already compressed.
+* With `tls internal` every client must trust Caddy's root CA (and have `ca-certificates`) for `apt` to fetch over HTTPS.
+  If you would rather not distribute a CA, serve plain HTTP on the LAN instead: `Security__PublicScheme=http`,
+  `REPOCUCK__BASE_URL=http://apt.home.lan`, and a `http://apt.home.lan` site in Caddy. `apt` traffic is still verified by the signed
+  metadata, but web logins are then unencrypted and cookies are not `Secure` (see the LAN-only section).
+* The "Host" header must match the host in `REPOCUCK__BASE_URL` (or be listed in `Security__TrustedHosts`).
 
 ### LAN only, plain HTTP
 
