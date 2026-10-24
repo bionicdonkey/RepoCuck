@@ -50,8 +50,16 @@ public class DebianVersionTests
     {
         var vs = new[] { "0.9", "1.0~rc1", "1.0", "1.0+b1", "1.0-1", "1.0-1+b1", "1.0a", "1.1", "1:0.1", "2:0.0" }
             .Select(DebianVersion.Parse).ToList();
-        foreach (var a in vs) foreach (var b in vs) foreach (var c in vs)
+        foreach (var a in vs)
+        {
+            foreach (var b in vs)
+            {
+                foreach (var c in vs)
+                {
                     if (a.CompareTo(b) <= 0 && b.CompareTo(c) <= 0) Assert.True(a.CompareTo(c) <= 0);
+                }
+            }
+        }
     }
 }
 
