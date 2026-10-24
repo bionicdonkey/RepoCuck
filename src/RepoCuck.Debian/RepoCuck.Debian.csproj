@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <PackageReference Include="SharpCompress" />
+    <PackageReference Include="ZstdSharp.Port" />
+  </ItemGroup>
+</Project>

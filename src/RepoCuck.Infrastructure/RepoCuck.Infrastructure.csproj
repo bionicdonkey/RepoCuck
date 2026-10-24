@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
+    <PackageReference Include="EFCore.NamingConventions" />
+    <PackageReference Include="Microsoft.Extensions.Http" />
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <ProjectReference Include="..\RepoCuck.Application\RepoCuck.Application.csproj" />
+    <ProjectReference Include="..\RepoCuck.Debian\RepoCuck.Debian.csproj" />
+    <EmbeddedResource Include="Migrations\*.sql" />
+  </ItemGroup>
+</Project>
