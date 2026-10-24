@@ -118,7 +118,7 @@
   <div class="row">
     <form method="post" asp-page-handler="Sync"><button class="secondary" type="submit">Sync now</button></form>
     <form method="post" asp-page-handler="Rearbitrate"><button class="secondary" type="submit">Re-arbitrate packages</button></form>
-    @foreach (var act in new[] { ("pause", "active"), ("resume", "paused"), ("remove", ""), ("block", ""), ("unblock", "blocked"), ("reinstate", "removed") })
+    @foreach (var act in new[] { ("pause", "active"), ("resume", "paused"), ("remove", ""), ("block", ""), ("unblock", "blocked"), ("reinstate", "removed"), ("activate", "proposed"), ("activate", "rejected") })
     {
       if (act.Item2 == "" || act.Item2 == Repo.State)
       { <form method="post" asp-page-handler="State" asp-route-action="@act.Item1"><input name="Reason" placeholder="reason (optional)" aria-label="Reason" style="width:14em" />

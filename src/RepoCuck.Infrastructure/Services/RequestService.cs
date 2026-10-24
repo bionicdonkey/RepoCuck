@@ -272,6 +272,14 @@ public sealed class RepositoryAdminService(
                 break;
             case "unblock":
                 Require(repo, RepoState.Blocked); repo.State = RepoState.Proposed; repo.StateReason = null; break;
+            case "activate":
+                if (repo.State is not (RepoState.Proposed or RepoState.Rejected)) throw new ServiceException("invalid_state", $"Repository is {repo.State}.", 409);
+                if (repo.Architectures.Length == 0) throw new ServiceException("validation_error", "Set at least one architecture first.");
+                repo.State = RepoState.Active; repo.StateReason = null; repo.ApprovedBy = adminId; repo.ApprovedAt = now; repo.NextSyncAt = now;
+                await db.ChangeRequests.Where(r => r.RepositoryId == repo.Id && r.Kind == RequestKind.AddRepo && r.Status == RequestStatus.Pending)
+                    .ExecuteUpdateAsync(s => s.SetProperty(r => r.Status, RequestStatus.Approved).SetProperty(r => r.DecidedBy, adminId)
+                        .SetProperty(r => r.DecidedAt, now).SetProperty(r => r.DecisionNote, "activated by an admin"), ct);
+                break;
             case "reinstate":
                 Require(repo, RepoState.Removed); repo.State = RepoState.Active; repo.RemovedAt = null; repo.NextSyncAt = now; repo.StateReason = null; break;
             default: throw new ServiceException("validation_error", "Unknown action.");

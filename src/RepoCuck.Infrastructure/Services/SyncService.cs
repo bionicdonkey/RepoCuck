@@ -10,7 +10,7 @@ using RepoCuck.Infrastructure.Data;
 namespace RepoCuck.Infrastructure.Services;
 
 public sealed class SyncService(
-    IDbContextFactory<AppDbContext> dbf, IGitHubClient gh, IBlobStore blobs, IClock clock, JobQueue jobs,
+    IDbContextFactory<AppDbContext> dbf, IGitHubClient gh, IBlobStore blobs, IClock clock, JobQueue jobs, ArbitrationService arbitration,
     IOptions<AptOptions> apt, IOptions<GitHubOptions> ghOpt, IOptions<PolicyOptions> policyOpt, SettingsService settings,
     IAuditService audit, ILogger<SyncService> log)
 {
@@ -175,9 +175,21 @@ public sealed class SyncService(
                 if (ar.State is AssetState.Parsed or AssetState.Quarantined)
                 {
                     ar.DownloadCount = asset.DownloadCount;
+                    // a repository that became publishable again revives variants tombstoned while it was ineligible
+                    var src = await db.PackageSources.FirstOrDefaultAsync(x => x.AssetId == ar.Id, ct);
+                    if (src is not null && repo.State is RepoState.Active or RepoState.Paused)
+                    {
+                        var tv = await db.PackageVariants.FirstAsync(x => x.Id == src.VariantId, ct);
+                        if (tv.State == VariantState.Tombstoned && tv.QuarantineReason == TombReason.RepoIneligible)
+                        {
+                            await arbitration.ReviveAsync(db, tv, src, ct);
+                            await db.SaveChangesAsync(ct);
+                            changed = true;
+                        }
+                    }
                     continue;
                 }
-                if (ar.State == AssetState.Excluded && ar.ExcludedReason == "not_deb") continue;
+                if (ar.State == AssetState.Excluded && ar.ExcludedReason is "not_deb" or TombReason.Retention or TombReason.AdminDeleted) continue;
                 if (ar.State == AssetState.Excluded && ar.ExcludedReason is { } er && er.StartsWith("arch_not_selected:", StringComparison.Ordinal))
                 {
                     var arch = er["arch_not_selected:".Length..];

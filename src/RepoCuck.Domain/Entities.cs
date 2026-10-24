@@ -23,6 +23,7 @@ public static class RequestStatus
 }
 
 public static class VariantState { public const string Active = "active", Quarantined = "quarantined", Tombstoned = "tombstoned"; }
+public static class TombReason { public const string Retention = "retention", RepoIneligible = "repo_ineligible", AdminDeleted = "admin_deleted"; }
 public static class AssetState
 {
     public const string Discovered = "discovered", Downloaded = "downloaded", Parsed = "parsed",
@@ -223,6 +224,7 @@ public class PackageVariant
     public DateTimeOffset? PublishAfter { get; set; }
     public DateTimeOffset FirstSeenAt { get; set; }
     public DateTimeOffset? PublishedAt { get; set; }
+    public DateTimeOffset? TombstonedAt { get; set; }
 }
 
 public class PackageSource

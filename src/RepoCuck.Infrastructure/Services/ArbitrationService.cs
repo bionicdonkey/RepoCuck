@@ -43,7 +43,7 @@ public sealed class ArbitrationService(IBlobStore blobs, IClock clock, IOptions<
             }
             else
             {
-                v.State = VariantState.Tombstoned;
+                v.State = VariantState.Tombstoned; v.TombstonedAt = now; v.QuarantineReason = TombReason.RepoIneligible;
                 await audit.WriteAsync("variant.tombstoned", null, "variant", v.Id.ToString(), metadata: new { reason = "winner_ineligible" }, ct: ct);
                 changes++;
             }
@@ -77,6 +77,13 @@ public sealed class ArbitrationService(IBlobStore blobs, IClock clock, IOptions<
             await audit.WriteAsync("variants.rearbitrated", actor, "repository", repoId?.ToString(), metadata: new { changes }, ct: ct);
         }
         return changes;
+    }
+
+    /// <summary>Brings a repo-ineligible tombstone back to life from <paramref name="source"/> (its repository is publishable again).</summary>
+    public async Task ReviveAsync(AppDbContext db, PackageVariant v, PackageSource source, CancellationToken ct)
+    {
+        await SwapAsync(db, v, source, "revival", ct);
+        v.State = VariantState.Active; v.QuarantineReason = null; v.TombstonedAt = null; v.PublishedAt = null;
     }
 
     private async Task<List<Candidate>> Candidates(AppDbContext db, PackageVariant v, DateTimeOffset now, TimeSpan grace, bool includeWinner, CancellationToken ct)

@@ -53,7 +53,7 @@ public static class AdminApi
             var r = await svc.PatchAsync(id, ctx.User.RequireId(), p, ct);
             return Results.Json(new { r.Id, r.State, r.Architectures });
         });
-        foreach (var action in new[] { "pause", "resume", "remove", "block", "unblock", "reinstate" })
+        foreach (var action in new[] { "pause", "resume", "remove", "block", "unblock", "reinstate", "activate" })
             a.MapPost($"/repositories/{{id:guid}}/{action}", async (HttpContext ctx, Guid id, ReasonBody? b, RepositoryAdminService svc, CancellationToken ct) =>
             {
                 var r = await svc.SetStateAsync(id, ctx.User.RequireId(), action, b?.Reason, ct);
@@ -177,6 +177,16 @@ public static class AdminApi
             SetVariantState(ctx, id, VariantState.Quarantined, "admin", dbf, sync, audit, ct));
         a.MapPost("/variants/{id:guid}/release", (HttpContext ctx, Guid id, IDbContextFactory<AppDbContext> dbf, SyncService sync, IAuditService audit, CancellationToken ct) =>
             SetVariantState(ctx, id, VariantState.Active, null, dbf, sync, audit, ct));
+        a.MapDelete("/variants/{id:guid}", async (HttpContext ctx, Guid id, IDbContextFactory<AppDbContext> dbf, SyncService sync, IAuditService audit, CancellationToken ct) =>
+        {
+            await using var db = await dbf.CreateDbContextAsync(ct);
+            var v = await db.PackageVariants.FirstOrDefaultAsync(x => x.Id == id, ct) ?? throw new ServiceException("not_found", "Variant not found.", 404);
+            v.State = VariantState.Tombstoned; v.TombstonedAt = DateTimeOffset.UtcNow; v.QuarantineReason = TombReason.AdminDeleted;
+            await db.SaveChangesAsync(ct);
+            await sync.RequestPublishAsync(ct);
+            await audit.WriteAsync("variant.deleted", ctx.User.Id(), "variant", id.ToString(), ct: ct);
+            return Results.NoContent();
+        });
         a.MapGet("/jobs", async (IDbContextFactory<AppDbContext> dbf, string? state, CancellationToken ct) =>
         {
             await using var db = await dbf.CreateDbContextAsync(ct);

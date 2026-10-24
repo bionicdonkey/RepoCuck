@@ -12,5 +12,8 @@
     <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
     <ProjectReference Include="..\..\src\RepoCuck.Web\RepoCuck.Web.csproj" />
   </ItemGroup>
-  <ItemGroup><Using Include="Xunit" /></ItemGroup>
+  <ItemGroup>
+    <Compile Include="..\RepoCuck.UnitTests\DebBuilder.cs" Link="DebBuilder.cs" />
+    <Using Include="Xunit" />
+  </ItemGroup>
 </Project>

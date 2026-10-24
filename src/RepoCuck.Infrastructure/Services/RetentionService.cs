@@ -28,7 +28,8 @@ public sealed class RetentionService(IDbContextFactory<AppDbContext> dbf, IBlobS
         }
         if (tomb.Count > 0)
         {
-            await db.PackageVariants.Where(v => tomb.Contains(v.Id)).ExecuteUpdateAsync(s => s.SetProperty(v => v.State, VariantState.Tombstoned), ct);
+            await db.PackageVariants.Where(v => tomb.Contains(v.Id)).ExecuteUpdateAsync(s => s.SetProperty(v => v.State, VariantState.Tombstoned)
+                .SetProperty(v => v.TombstonedAt, now).SetProperty(v => v.QuarantineReason, TombReason.Retention), ct);
             await audit.WriteAsync("retention.tombstoned", null, "variant", null, metadata: new { count = tomb.Count }, ct: ct);
             changed = true;
         }
@@ -38,6 +39,28 @@ public sealed class RetentionService(IDbContextFactory<AppDbContext> dbf, IBlobS
         var grace = TimeSpan.FromDays(ret.Value.OrphanGraceDays);
         var expired = await db.Repositories.AnyAsync(r => r.State == RepoState.Removed && r.RemovedAt != null && r.RemovedAt <= now - grace, ct);
         if (expired) changed = true;
+
+        // 2b. Hard-delete tombstones once no retained generation can reference them; reclaim their assets for re-ingestion where appropriate.
+        var hardCutoff = now - TimeSpan.FromHours(Math.Max(ret.Value.GenerationHours, ret.Value.BlobGraceHours));
+        var dead = await db.PackageVariants.Where(v => v.State == VariantState.Tombstoned && v.TombstonedAt != null && v.TombstonedAt < hardCutoff)
+            .Select(v => new { v.Id, v.QuarantineReason }).ToListAsync(ct);
+        if (dead.Count > 0)
+        {
+            foreach (var grp in dead.GroupBy(d => d.QuarantineReason))
+            {
+                var ids = grp.Select(d => d.Id).ToList();
+                var assetQuery = db.ReleaseAssets.Where(a => db.PackageSources.Any(s => s.AssetId == a.Id && ids.Contains(s.VariantId)));
+                if (grp.Key == TombReason.RepoIneligible)
+                    await assetQuery.ExecuteUpdateAsync(s => s.SetProperty(a => a.State, AssetState.Discovered), ct);   // can be re-ingested if the repo returns
+                else
+                {
+                    var why = grp.Key ?? TombReason.Retention;   // permanent skip: never re-ingest versions dropped by retention or deleted by an admin
+                    await assetQuery.ExecuteUpdateAsync(s => s.SetProperty(a => a.State, AssetState.Excluded).SetProperty(a => a.ExcludedReason, why), ct);
+                }
+                await db.PackageVariants.Where(v => ids.Contains(v.Id)).ExecuteDeleteAsync(ct);   // package_sources cascade
+            }
+            await audit.WriteAsync("retention.deleted", null, "variant", null, metadata: new { count = dead.Count }, ct: ct);
+        }
 
         // 3. Hard-delete removed repositories 90 days after grace when nothing is published from them.
         var cutoff = now - grace - TimeSpan.FromDays(90);
