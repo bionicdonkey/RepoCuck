@@ -25,6 +25,8 @@ Cloudflare notes:
 * **Caching.** `.deb` files are not cached by default. Add cache rules for `/apt/pool/*` and `/apt/dists/*/by-hash/*`
   (eligible for cache, long edge TTL; the content is immutable). Bypass the cache for `/apt/dists/*/InRelease`, `Release`,
   `Release.gpg` and `Packages*`, and for everything outside `/apt/`.
+* **Host header.** The app only answers for the host in `REPOCUCK__BASE_URL` (plus `localhost`). Leave the tunnel's *HTTP Host
+  Header* origin setting empty, or add the value you set to `Security__TrustedHosts`.
 * **Compression / ETags.** Cloudflare may recompress text and weaken ETags. apt tolerates both.
 * **Terms of service.** Cloudflare's self-serve terms restrict serving large amounts of non-HTML content through the proxy.
   Check them for your plan before publishing a large pool this way, or use Caddy / LAN mode instead.
@@ -171,7 +173,18 @@ Logs are JSON on stdout with trace/span ids; `/healthz` and `/readyz` expose onl
 * **Upgrade**: pull the new image and `docker compose up -d`; migrations apply under an advisory lock. Migrations are additive
   (expand/contract), so rolling back to the previous image is safe for one minor version.
 
-## 9. Not implemented / limitations (1.0)
+## 9. What has been verified
+
+Automated: 91 unit tests, 94 integration tests (PostgreSQL via Testcontainers, a mock OpenID Connect provider, a scripted GitHub/CDN
+server for the HTTP client), a Docker end-to-end suite and a backup/restore drill. The end-to-end suite drives real `apt` clients
+on Debian 11/12/13 and Ubuntu 22.04/24.04 (signed update without warnings, install, upgrade, foreign-architecture download).
+Opt-in checks against the real GitHub (`RC_NETWORK_TESTS=1 dotnet test --filter RealGitHubTests`, and
+`tests/e2e/real_github_demo.py`, which mirrors `BurntSushi/ripgrep` and installs it) confirmed parsing of real `.deb`s with
+gz/xz/zstd control archives and digest verification. The image has no HIGH/CRITICAL findings in Trivy at the time of writing.
+Not verified: a real Keycloak/Entra/Authentik instance (the protocol is exercised against a mock provider), a real Cloudflare
+Tunnel, and large-file throughput.
+
+## 10. Not implemented / limitations (1.0)
 
 * No OpenTelemetry trace export (JSON logs carry trace ids; metrics via `/metrics`).
 * Self-registration (`invite`/`open`) is not offered: Admins create local accounts, or users sign in through SSO.

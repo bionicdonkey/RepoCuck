@@ -1,0 +1,7 @@
+# Points the e2e stack at the real GitHub (anonymous: 60 requests/hour). Used by real_github_demo.py.
+services:
+  app:
+    environment:
+      GitHub__ApiBaseUrl: https://api.github.com
+      GitHub__AllowInsecureForTesting: "false"
+      GitHub__Token: ${GITHUB_TOKEN:-}

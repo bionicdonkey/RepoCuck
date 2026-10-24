@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Draft v1.1 — for review |
+| Status | v1.1 — implemented as RepoCuck 1.0 (see the spec's Appendix E for deviations) |
 | Date | 2026-10-24 |
 | Product name | RepoCuck |
 | Companion document | [`IMPLEMENTATION_SPEC.md`](./IMPLEMENTATION_SPEC.md) |

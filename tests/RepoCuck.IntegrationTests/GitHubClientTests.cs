@@ -224,10 +224,88 @@ public class GitHubClientTests(PostgresFixture pg)
     }
 
     [Theory]
-    [InlineData("10.1.2.3", true)] [InlineData("172.16.0.1", true)] [InlineData("172.31.255.255", true)] [InlineData("172.32.0.1", false)]
-    [InlineData("192.168.1.1", true)] [InlineData("127.0.0.1", true)] [InlineData("169.254.169.254", true)] [InlineData("100.64.0.1", true)]
-    [InlineData("0.0.0.0", true)] [InlineData("224.0.0.1", true)] [InlineData("8.8.8.8", false)] [InlineData("140.82.112.3", false)]
-    [InlineData("::1", true)] [InlineData("fe80::1", true)] [InlineData("fc00::1", true)] [InlineData("fd12:3456::1", true)]
-    [InlineData("::ffff:10.0.0.1", true)] [InlineData("::ffff:8.8.8.8", false)] [InlineData("2606:4700::1111", false)]
+    [InlineData("10.1.2.3", true)]
+    [InlineData("172.16.0.1", true)]
+    [InlineData("172.31.255.255", true)]
+    [InlineData("172.32.0.1", false)]
+    [InlineData("192.168.1.1", true)]
+    [InlineData("127.0.0.1", true)]
+    [InlineData("169.254.169.254", true)]
+    [InlineData("100.64.0.1", true)]
+    [InlineData("0.0.0.0", true)]
+    [InlineData("224.0.0.1", true)]
+    [InlineData("8.8.8.8", false)]
+    [InlineData("140.82.112.3", false)]
+    [InlineData("::1", true)]
+    [InlineData("fe80::1", true)]
+    [InlineData("fc00::1", true)]
+    [InlineData("fd12:3456::1", true)]
+    [InlineData("::ffff:10.0.0.1", true)]
+    [InlineData("::ffff:8.8.8.8", false)]
+    [InlineData("2606:4700::1111", false)]
     public void Private_address_classification(string ip, bool isPrivate) => Assert.Equal(isPrivate, GitHubClient.IsPrivate(IPAddress.Parse(ip)));
+}
+
+[Collection("pg")]
+public class RateLimitWindowTests(PostgresFixture pg)
+{
+    [Fact]
+    public async Task Exhausted_quota_is_assumed_restored_once_the_reset_time_passes()
+    {
+        await using var srv = await ScriptedServer.StartAsync();
+        var cs = await pg.CreateDatabaseAsync();
+        var ds = NpgsqlDataSource.Create(cs);
+        await MigrationRunner.ApplyAsync(ds, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance, default);
+        var services = new ServiceCollection();
+        services.AddLogging(); services.AddSingleton(ds);
+        services.AddDbContextFactory<AppDbContext>((sp, o) => o.UseNpgsql(sp.GetRequiredService<NpgsqlDataSource>()).UseSnakeCaseNamingConvention());
+        services.Configure<GitHubOptions>(o => { o.ApiBaseUrl = srv.Base; o.AllowInsecureForTesting = true; });
+        services.AddHttpClient(GitHubClient.HttpClientName).ConfigurePrimaryHttpMessageHandler(sp => GitHubClient.CreateHandler(sp.GetRequiredService<IOptions<GitHubOptions>>().Value));
+        services.AddSingleton<GitHubClient>();
+        using var sp = services.BuildServiceProvider();
+        var client = sp.GetRequiredService<GitHubClient>();
+        var reset = DateTimeOffset.UtcNow.AddSeconds(2).ToUnixTimeSeconds();
+        srv.Handler = c =>
+        {
+            c.Response.StatusCode = 404; c.Response.Headers["X-RateLimit-Limit"] = "60"; c.Response.Headers["X-RateLimit-Remaining"] = "1"; c.Response.Headers["X-RateLimit-Reset"] = reset.ToString();
+            return Task.CompletedTask;
+        };
+        await Assert.ThrowsAsync<GitHubException>(() => client.GetRepoAsync("a", "b", default));
+        Assert.True(client.RateLimitRemainingPercent < 10, "job runner pauses while quota is nearly exhausted");
+        await Task.Delay(TimeSpan.FromSeconds(3));
+        Assert.Equal(100, client.RateLimitRemainingPercent);       // otherwise the runner would never claim a job again
+    }
+}
+
+[Collection("pg")]
+public class CrashRecoveryTests(PostgresFixture pg)
+{
+    [Fact]
+    public async Task Interrupted_runs_and_generations_are_failed_at_startup()
+    {
+        var cs = await pg.CreateDatabaseAsync();
+        using (var first = new AppFactory { ConnectionString = cs })
+        {
+            first.Settings["REPOCUCK:ROLE"] = "web";
+            first.CreateClient();
+            first.GitHub.AddRepo("acme/x", 1);
+            await first.WithDbAsync(async db =>
+            {
+                var repoId = Guid.NewGuid();
+                db.Repositories.Add(new Domain.Repository { Id = repoId, GithubRepoId = 1, Owner = "a", Name = "x", FullName = "a/x", HtmlUrl = "u", CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow });
+                await db.SaveChangesAsync();
+                db.SyncRuns.Add(new Domain.SyncRun { Id = Guid.NewGuid(), RepositoryId = repoId, StartedAt = DateTimeOffset.UtcNow, Status = "running" });
+                var suite = await db.AptSuites.FirstAsync();
+                db.AptGenerations.Add(new Domain.AptGeneration { Id = Guid.NewGuid(), SuiteId = suite.Id, GenerationNo = 99, Status = "building", CreatedAt = DateTimeOffset.UtcNow });
+                await db.SaveChangesAsync();
+                return 0;
+            });
+        }
+        using var second = new AppFactory { ConnectionString = cs };
+        second.Settings["REPOCUCK:ROLE"] = "web";
+        second.CreateClient();                   // startup runs the recovery step
+        Assert.Equal(0, await second.WithDbAsync(db => db.SyncRuns.CountAsync(r => r.Status == "running")));
+        Assert.Equal(0, await second.WithDbAsync(db => db.AptGenerations.CountAsync(g => g.Status == "building")));
+        Assert.Equal("interrupted", await second.WithDbAsync(db => db.SyncRuns.Select(r => r.ErrorCategory).FirstAsync()));
+    }
 }

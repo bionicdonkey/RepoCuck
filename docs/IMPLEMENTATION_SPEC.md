@@ -2157,6 +2157,7 @@ deviations below.
 | Observability | OpenTelemetry traces/metrics | JSON logs with trace/span ids and a Prometheus text endpoint (`/metrics`) with the counters/gauges listed in the operations guide; no OTLP exporter |
 | Process split | `web`/`worker` roles | accepted but experimental; requires a shared `/data` |
 | Database roles | `INSERT/SELECT`-only role for `audit_log` | append-only is enforced by a trigger; the app's role also owns the schema |
+| Client compatibility | Debian 11/12/13, Ubuntu 22.04/24.04 | verified in the end-to-end suite with real `apt` (Debian 11 via archive.debian.org for its own packages) |
 | Accessibility | axe-core run | semantic markup, labelled controls, skip link, focus styles and CSP-clean markup are asserted in an integration test; no axe-core/manual screen-reader audit |
 | Performance | k6 targets verified | `tests/load/apt.js` (k6): 200 req/s on `Packages` plus 50 concurrent pool downloads for 60 s on a laptop-class host gave p95 1.3 ms, 0 % errors, ~170 MiB RSS. The fixtures are tiny, so large-file (100 MiB) throughput and a 10k-package generation benchmark were not measured |
 | Request pipeline | §2.3 order | exception handler → forwarded headers → security headers/scheme → host filtering → static files → routing → rate limiter → authentication → must-change-password gate → authorisation → API CSRF |

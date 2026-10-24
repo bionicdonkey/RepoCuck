@@ -24,6 +24,7 @@ public sealed class GitHubClient : IGitHubClient
     private readonly string[] _allow;
     private readonly Uri _api;
     private volatile int _remainingPct = 100;
+    private long _resetUnix;      // when the current rate-limit window ends (X-RateLimit-Reset)
 
     public GitHubClient(IHttpClientFactory factory, IOptions<GitHubOptions> opt, IDbContextFactory<AppDbContext> dbf, ILogger<GitHubClient> log)
     {
@@ -37,7 +38,8 @@ public sealed class GitHubClient : IGitHubClient
         _allow = _opt.AssetHostAllowList.Split([',', ' '], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
     }
 
-    public int RateLimitRemainingPercent => _remainingPct;
+    /// <summary>Remaining quota as a percentage; once the window has reset it is assumed full again (no response is needed to learn that).</summary>
+    public int RateLimitRemainingPercent => Volatile.Read(ref _resetUnix) is var r && r > 0 && DateTimeOffset.UtcNow.ToUnixTimeSeconds() >= r ? 100 : _remainingPct;
 
     /// <summary>Configures the SocketsHttpHandler: no auto-redirect and connect-time private IP rejection.</summary>
     public static SocketsHttpHandler CreateHandler(GitHubOptions opt)
@@ -210,7 +212,10 @@ public sealed class GitHubClient : IGitHubClient
     {
         if (resp.Headers.TryGetValues("X-RateLimit-Remaining", out var r) && resp.Headers.TryGetValues("X-RateLimit-Limit", out var l)
             && int.TryParse(r.First(), out var rem) && int.TryParse(l.First(), out var lim) && lim > 0)
+        {
             _remainingPct = Math.Clamp(rem * 100 / lim, 0, 100);
+            if (resp.Headers.TryGetValues("X-RateLimit-Reset", out var rs) && long.TryParse(rs.First(), out var unix)) Volatile.Write(ref _resetUnix, unix);
+        }
     }
 
     private static bool IsRateLimited(HttpResponseMessage resp, out DateTimeOffset reset)

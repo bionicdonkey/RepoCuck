@@ -73,7 +73,12 @@ public sealed class SyncService(
             if (e.Transient) throw;
             return run;
         }
-        catch (OperationCanceledException) { throw; }
+        catch (OperationCanceledException)
+        {
+            run.Status = "failed"; run.ErrorCategory = "cancelled"; run.FinishedAt = clock.UtcNow;      // shutdown: do not leave the run 'running'
+            await db.SaveChangesAsync(CancellationToken.None);
+            throw;
+        }
         catch (Exception e)
         {
             repo.ConsecutiveFailures++;
@@ -93,7 +98,11 @@ public sealed class SyncService(
         repo.NextSyncAt = repo.State == RepoState.Active ? NextSync(repo) : null;
         await db.SaveChangesAsync(ct);
         if ((changed || reevaluate) && repo.State is RepoState.Active or RepoState.Paused)
+        {
+            // apply the per-package version cap before the (5 s delayed) publish so a 20-release backfill doesn't flash into the index
+            if (run.VariantsCreated > 0) await jobs.EnqueueAsync(JobKind.RetentionSweep, null, "retention", TimeSpan.FromSeconds(1), ct: ct);
             await RequestPublishAsync(ct);
+        }
         return run;
     }
 

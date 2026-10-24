@@ -145,6 +145,11 @@ public sealed class Bootstrapper(
         {
             await signer.EnsureReadyAsync(ct);
         }
+        // Work interrupted by a crash or kill must not stay 'running'/'building' forever.
+        var now = DateTimeOffset.UtcNow;
+        await db.SyncRuns.Where(r => r.Status == "running")
+            .ExecuteUpdateAsync(s => s.SetProperty(r => r.Status, "failed").SetProperty(r => r.ErrorCategory, "interrupted").SetProperty(r => r.FinishedAt, now), ct);
+        await db.AptGenerations.Where(g => g.Status == "building").ExecuteUpdateAsync(s => s.SetProperty(g => g.Status, "failed"), ct);
         await sp.GetRequiredService<OidcSchemeManager>().RefreshAsync(ct);
         if (!await db.Users.AnyAsync(ct))
         {

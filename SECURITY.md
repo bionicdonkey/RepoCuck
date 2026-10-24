@@ -28,4 +28,5 @@ Only approve repositories whose maintainers you would trust with root on your ma
 * The `audit_log` is append-only through a database trigger, but the application's database role also owns the schema
   (migrations run in-process). Use PostgreSQL role separation if you need tamper-resistance against a compromised app.
 * OIDC discovery is fetched from the Admin-supplied authority, including private addresses (home labs run IdPs on the LAN).
+* ASP.NET Data Protection keys are stored unencrypted under `/data/dpkeys` (mode 0600 in the volume); protect the volume like the signing key.
 * Backups contain the signing key and encryption keys. Encrypt them.
