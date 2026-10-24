@@ -1,5 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
     <ProjectReference Include="..\RepoCuck.Domain\RepoCuck.Domain.csproj" />
+    <ProjectReference Include="..\RepoCuck.Debian\RepoCuck.Debian.csproj" />
   </ItemGroup>
 </Project>
