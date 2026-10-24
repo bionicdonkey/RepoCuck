@@ -56,16 +56,16 @@ jobs:
       VERSION: ${{ needs.validate.outputs.version }}
       PUBLISH: ${{ needs.validate.outputs.publish }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Image name (GHCR requires lower case)
         run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/repocuck" >> "$GITHUB_ENV"
-      - uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         if: env.PUBLISH == 'true'
         with: { registry: ghcr.io, username: "${{ github.actor }}", password: "${{ secrets.GITHUB_TOKEN }}" }
       - id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
         with:
           images: ${{ env.IMAGE }}
           tags: |
@@ -78,7 +78,7 @@ jobs:
 
       # 1) native build + scan before anything is published
       - name: Build amd64 image for scanning
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
           file: deploy/Dockerfile
@@ -102,7 +102,7 @@ jobs:
       # 2) multi-arch build (push only for real releases)
       - id: push
         name: Build ${{ env.PUBLISH == 'true' && 'and push' || '(no push)' }} linux/amd64 + linux/arm64
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
           file: deploy/Dockerfile
@@ -124,7 +124,7 @@ jobs:
           docker run --rm --platform linux/arm64 --entrypoint sh "$IMAGE@${{ steps.push.outputs.digest }}" \
             -c 'uname -m && gpg --version | head -1 && xz --version | head -1 && dotnet --list-runtimes | head -2'
 
-      - uses: sigstore/cosign-installer@v3
+      - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3
         if: env.PUBLISH == 'true'
       - name: Sign the image (keyless)
         if: env.PUBLISH == 'true'
@@ -133,7 +133,7 @@ jobs:
       # 3) GitHub release with notes, SBOM and the deployment bundle
       - name: SBOM (CycloneDX)
         if: env.PUBLISH == 'true'
-        uses: anchore/sbom-action@v0
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
         with:
           image: ${{ env.IMAGE }}@${{ steps.push.outputs.digest }}
           format: cyclonedx-json
