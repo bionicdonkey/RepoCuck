@@ -1,0 +1,52 @@
+@page "/admin/users"
+@inject IDbContextFactory<AppDbContext> Dbf
+@inject UserService Users
+@functions {
+    public List<User> All { get; set; } = [];
+    [BindProperty] public string NewUsername { get; set; } = "";
+    [BindProperty] public string? NewDisplay { get; set; }
+    [BindProperty] public string? NewPassword { get; set; }
+    [BindProperty] public string NewRole { get; set; } = Roles.Member;
+    public async Task OnGetAsync(CancellationToken ct)
+    {
+        await using var db = await Dbf.CreateDbContextAsync(ct);
+        All = await db.Users.AsNoTracking().OrderBy(u => u.Username).ToListAsync(ct);
+    }
+    private async Task<IActionResult> Run(Func<Task<string>> a)
+    {
+        try { TempData["Flash"] = await a(); } catch (ServiceException e) { TempData["Error"] = e.Message; }
+        return RedirectToPage();
+    }
+    public Task<IActionResult> OnPostCreateAsync(CancellationToken ct) => Run(async () =>
+    {
+        await Users.CreateAsync(NewUsername, NewDisplay ?? NewUsername, null, NewPassword, NewRole, true, User.RequireId(), ct);
+        return $"Created {NewUsername}; they must change the password at first sign-in.";
+    });
+    public Task<IActionResult> OnPostRoleAsync(Guid id, string role, CancellationToken ct) => Run(async () => { await Users.UpdateAsync(id, User.RequireId(), role, null, null, ct); return "Role updated."; });
+    public Task<IActionResult> OnPostActiveAsync(Guid id, bool active, CancellationToken ct) => Run(async () => { await Users.UpdateAsync(id, User.RequireId(), null, active, null, ct); return active ? "Enabled." : "Disabled."; });
+    public Task<IActionResult> OnPostResetAsync(Guid id, CancellationToken ct) => Run(async () => $"Temporary password: {await Users.ResetPasswordAsync(id, User.RequireId(), ct)} (shown once)");
+    public Task<IActionResult> OnPostUnlockAsync(Guid id, CancellationToken ct) => Run(async () => { await Users.UnlockAsync(id, User.RequireId(), ct); return "Unlocked."; });
+    public Task<IActionResult> OnPostMfaAsync(Guid id, CancellationToken ct) => Run(async () => { await Users.ResetMfaAsync(id, User.RequireId(), ct); return "Two-factor reset."; });
+}
+@{ ViewData["Title"] = "Users"; }
+<h1>Users</h1>
+<table><thead><tr><th>User</th><th>Role</th><th>Status</th><th>2FA</th><th>Last sign-in</th><th>Actions</th></tr></thead><tbody>
+@foreach (var u in All) {
+  <tr><td>@u.Username<div class="muted">@u.DisplayName</div></td><td>@u.Role</td><td><span class="badge @(u.IsActive ? "active" : "removed")">@(u.IsActive ? "enabled" : "disabled")</span></td>
+      <td>@(u.TotpEnabled ? "on" : "off")</td><td>@(u.LastLoginAt?.ToString("u") ?? "never")</td>
+      <td class="row">
+        <form method="post" asp-page-handler="Role" asp-route-id="@u.Id" asp-route-role="@(u.Role == "admin" ? "member" : "admin")"><button class="secondary" type="submit">Make @(u.Role == "admin" ? "member" : "admin")</button></form>
+        <form method="post" asp-page-handler="Active" asp-route-id="@u.Id" asp-route-active="@(!u.IsActive)"><button class="secondary" type="submit">@(u.IsActive ? "Disable" : "Enable")</button></form>
+        <form method="post" asp-page-handler="Reset" asp-route-id="@u.Id"><button class="secondary" type="submit">Reset password</button></form>
+        <form method="post" asp-page-handler="Unlock" asp-route-id="@u.Id"><button class="secondary" type="submit">Unlock</button></form>
+        @if (u.TotpEnabled) { <form method="post" asp-page-handler="Mfa" asp-route-id="@u.Id"><button class="secondary" type="submit">Reset 2FA</button></form> }
+      </td></tr>
+}</tbody></table>
+<h2>Create user</h2>
+<form method="post" asp-page-handler="Create" class="stack">
+  <label>Username <input asp-for="NewUsername" required /></label>
+  <label>Display name <input asp-for="NewDisplay" /></label>
+  <label>Initial password (12+ characters) <input asp-for="NewPassword" type="password" required minlength="12" autocomplete="new-password" /></label>
+  <label>Role <select asp-for="NewRole"><option value="member">member</option><option value="admin">admin</option></select></label>
+  <button type="submit">Create</button>
+</form>

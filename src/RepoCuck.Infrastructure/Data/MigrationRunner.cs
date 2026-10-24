@@ -38,6 +38,8 @@ public static class MigrationRunner
         }
         finally
         {
+            // Extensions (citext) created by a migration must be visible to the data source's type catalog.
+            await conn.ReloadTypesAsync(ct);
             await Exec(conn, "select pg_advisory_unlock(hashtext('repocuck:migrate'))", CancellationToken.None);
         }
     }

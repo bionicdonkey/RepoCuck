@@ -1,0 +1,30 @@
+@page "/admin/queue"
+@inject IDbContextFactory<AppDbContext> Dbf
+@inject JobQueue Queue
+@functions {
+    public List<Job> Jobs { get; set; } = [];
+    public async Task OnGetAsync(CancellationToken ct)
+    {
+        await using var db = await Dbf.CreateDbContextAsync(ct);
+        Jobs = await db.Jobs.AsNoTracking().OrderByDescending(j => j.UpdatedAt).Take(100).ToListAsync(ct);
+    }
+    public async Task<IActionResult> OnPostRetryAsync(Guid id, CancellationToken ct)
+    {
+        await using var db = await Dbf.CreateDbContextAsync(ct);
+        await db.Jobs.Where(j => j.Id == id && (j.State == JobState.Dead || j.State == JobState.Failed))
+            .ExecuteUpdateAsync(s => s.SetProperty(j => j.State, JobState.Pending).SetProperty(j => j.Attempts, 0).SetProperty(j => j.RunAfter, DateTimeOffset.UtcNow), ct);
+        return RedirectToPage();
+    }
+    public async Task<IActionResult> OnPostRebuildAsync(CancellationToken ct)
+    {
+        await Queue.EnqueueAsync(JobKind.RebuildApt, null, "rebuild", ct: ct);
+        TempData["Flash"] = "Rebuild queued.";
+        return RedirectToPage();
+    }
+}
+@{ ViewData["Title"] = "Job queue"; }
+<div class="row"><h1 style="flex:1">Job queue</h1><form method="post" asp-page-handler="Rebuild"><button class="secondary" type="submit">Rebuild APT indices</button></form></div>
+<table><thead><tr><th>Kind</th><th>State</th><th>Attempts</th><th>Run after</th><th>Last error</th><th></th></tr></thead><tbody>
+@foreach (var j in Jobs) { <tr><td>@j.Kind</td><td><span class="badge @j.State">@j.State</span></td><td>@j.Attempts/@j.MaxAttempts</td><td>@j.RunAfter.ToString("u")</td><td>@j.LastError</td>
+  <td>@if (j.State is "dead" or "failed") { <form method="post" asp-page-handler="Retry" asp-route-id="@j.Id"><button class="secondary" type="submit">Retry</button></form> }</td></tr> }
+</tbody></table>

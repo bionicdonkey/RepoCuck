@@ -1,0 +1,42 @@
+@page "/requests/new"
+@inject RequestService Svc
+@inject IOptions<AptOptions> Apt
+@inject SettingsService Settings
+@functions {
+    [BindProperty] public string? Repository { get; set; }
+    [BindProperty] public string[] Archs { get; set; } = [];
+    [BindProperty] public string? Note { get; set; }
+    public string[] Allow { get; set; } = [];
+    public string? Error { get; set; }
+    public Guid? ExistingId { get; set; }
+
+    public async Task OnGetAsync(CancellationToken ct) => Allow = await Settings.GetAsync<string[]>(SettingsService.ArchAllowList, ct) ?? Architectures.ParseList(Apt.Value.Architectures);
+
+    public async Task<IActionResult> OnPostAsync(CancellationToken ct)
+    {
+        Allow = await Settings.GetAsync<string[]>(SettingsService.ArchAllowList, ct) ?? Architectures.ParseList(Apt.Value.Architectures);
+        try
+        {
+            var res = await Svc.CreateAsync(User.RequireId(), new CreateRequestInput(RequestKind.AddRepo, null, null, Repository, null, Archs, Note), ct);
+            TempData["Flash"] = $"Request for {res.Repository.FullName} submitted. An administrator will review it.";
+            return RedirectToPage("/Requests/Index");
+        }
+        catch (ServiceException e)
+        {
+            Error = e.Message;
+            if (e.Extra is not null && e.Extra.GetType().GetProperty("repositoryId")?.GetValue(e.Extra) is Guid g) ExistingId = g;
+            return Page();
+        }
+    }
+}
+@{ ViewData["Title"] = "Request a repository"; }
+<h1>Request a repository</h1>
+@if (Error is not null) { <div class="flash error" role="alert">@Error @if (ExistingId is not null) { <a href="/repos/@ExistingId">View it</a> }</div> }
+<form method="post" class="stack">
+  <label>GitHub repository <input asp-for="Repository" placeholder="owner/name or https://github.com/owner/name" required /></label>
+  <fieldset><legend>Architectures</legend>
+    @foreach (var a in Allow) { <label class="inline"><input type="checkbox" name="Archs" value="@a" checked="@(a == "amd64")" /> @a</label> }
+  </fieldset>
+  <label>Why do you want it? (optional) <textarea asp-for="Note" maxlength="1000" rows="3"></textarea></label>
+  <button type="submit">Submit request</button>
+</form>

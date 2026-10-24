@@ -1,0 +1,47 @@
+@{
+    var nonce = Context.Nonce();
+    var admin = User.IsInRole("admin");
+    string Active(string p) => Context.Request.Path.StartsWithSegments(p) ? "aria-current=\"page\"" : "";
+}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>@(ViewData["Title"] ?? "RepoCuck") · RepoCuck</title>
+  <link rel="stylesheet" href="/css/site.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="topbar">
+  <a class="brand" href="/repos">RepoCuck</a>
+  @if (User.Identity?.IsAuthenticated == true)
+  {
+    <nav aria-label="Main">
+      <a href="/repos" @Html.Raw(Active("/repos"))>Repositories</a>
+      <a href="/requests" @Html.Raw(Active("/requests"))>Requests</a>
+      <a href="/apt/">APT repo</a>
+      @if (admin)
+      {
+        <a href="/admin/requests" @Html.Raw(Active("/admin/requests"))>Approvals</a>
+        <a href="/admin/repositories" @Html.Raw(Active("/admin/repositories"))>Manage</a>
+        <a href="/admin/users" @Html.Raw(Active("/admin/users"))>Users</a>
+        <a href="/admin/settings" @Html.Raw(Active("/admin/settings"))>Settings</a>
+        <a href="/admin/audit" @Html.Raw(Active("/admin/audit"))>Audit</a>
+        <a href="/admin/queue" @Html.Raw(Active("/admin/queue"))>Queue</a>
+      }
+    </nav>
+    <div class="who">
+      <a href="/account">@User.Identity!.Name</a>
+      <form method="post" action="/auth/logout"><button class="link" type="submit">Sign out</button></form>
+    </div>
+  }
+</header>
+<main id="main" class="container">
+  @if (TempData["Flash"] is string flash) { <div class="flash" role="status" aria-live="polite">@flash</div> }
+  @if (TempData["Error"] is string err) { <div class="flash error" role="alert">@err</div> }
+  @RenderBody()
+</main>
+<script src="/js/site.js" nonce="@nonce"></script>
+</body>
+</html>

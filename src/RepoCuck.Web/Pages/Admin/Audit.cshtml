@@ -1,0 +1,21 @@
+@page "/admin/audit"
+@inject IDbContextFactory<AppDbContext> Dbf
+@functions {
+    public List<AuditEntry> Rows { get; set; } = [];
+    [BindProperty(SupportsGet = true)] public string? Action { get; set; }
+    [BindProperty(SupportsGet = true)] public int Skip { get; set; }
+    public async Task OnGetAsync(CancellationToken ct)
+    {
+        await using var db = await Dbf.CreateDbContextAsync(ct);
+        var q = db.AuditLog.AsNoTracking().AsQueryable();
+        if (!string.IsNullOrWhiteSpace(Action)) { var a = Action.Trim(); q = q.Where(x => x.Action.StartsWith(a)); }
+        Rows = await q.OrderByDescending(x => x.Id).Skip(Math.Max(0, Skip)).Take(100).ToListAsync(ct);
+    }
+}
+@{ ViewData["Title"] = "Audit log"; }
+<div class="row"><h1 style="flex:1">Audit log</h1><a href="/api/v1/admin/audit?format=csv&limit=10000">Export CSV</a></div>
+<form method="get" class="row"><label class="inline">Action prefix <input name="action" value="@Action" /></label><button class="secondary" type="submit">Filter</button></form>
+<table><thead><tr><th>When</th><th>Actor</th><th>Action</th><th>Target</th><th>Outcome</th><th>Details</th></tr></thead><tbody>
+@foreach (var r in Rows) { <tr><td>@r.OccurredAt.ToString("u")</td><td>@(r.ActorLabel ?? r.ActorUserId?.ToString()[..8])</td><td>@r.Action</td><td>@r.TargetType @r.TargetId</td><td>@r.Outcome</td><td><code>@r.Metadata</code></td></tr> }
+</tbody></table>
+<div class="row">@if (Skip > 0) { <a href="?action=@Action&skip=@Math.Max(0, Skip - 100)">← Newer</a> } @if (Rows.Count == 100) { <a href="?action=@Action&skip=@(Skip + 100)">Older →</a> }</div>

@@ -1,0 +1,33 @@
+@page "/admin/quarantine"
+@inject IDbContextFactory<AppDbContext> Dbf
+@inject SyncService Sync
+@inject IAuditService Audit
+@functions {
+    public record Row(Guid Id, string Package, string Version, string Architecture, string? Reason);
+    public List<Row> Rows { get; set; } = [];
+    public async Task OnGetAsync(CancellationToken ct)
+    {
+        await using var db = await Dbf.CreateDbContextAsync(ct);
+        Rows = await (from v in db.PackageVariants.AsNoTracking() join p in db.Packages on v.PackageId equals p.Id where v.State == VariantState.Quarantined
+                      select new Row(v.Id, p.Name, v.Version, v.Architecture, v.QuarantineReason)).ToListAsync(ct);
+    }
+    public async Task<IActionResult> OnPostReleaseAsync(Guid id, CancellationToken ct)
+    {
+        await using var db = await Dbf.CreateDbContextAsync(ct);
+        var v = await db.PackageVariants.FirstOrDefaultAsync(x => x.Id == id, ct);
+        if (v is null) return NotFound();
+        v.State = VariantState.Active; v.QuarantineReason = null;
+        await db.SaveChangesAsync(ct);
+        await Audit.WriteAsync("variant.released", User.Id(), "variant", id.ToString(), ct: ct);
+        await Sync.RequestPublishAsync(ct);
+        TempData["Flash"] = "Released for publication.";
+        return RedirectToPage();
+    }
+}
+@{ ViewData["Title"] = "Quarantine"; }
+<h1>Quarantined packages</h1>
+<p class="muted">These were flagged by package policy and are not published until released.</p>
+@if (Rows.Count == 0) { <p>Nothing is quarantined.</p> } else {
+<table><thead><tr><th>Package</th><th>Version</th><th>Arch</th><th>Reason</th><th></th></tr></thead><tbody>
+@foreach (var r in Rows) { <tr><td>@r.Package</td><td>@r.Version</td><td>@r.Architecture</td><td>@r.Reason</td><td><form method="post" asp-page-handler="Release" asp-route-id="@r.Id"><button class="secondary" type="submit">Release</button></form></td></tr> }
+</tbody></table>}

@@ -1,0 +1,21 @@
+{
+  "repos": {
+    "acme/fooapp": {
+      "id": 1001,
+      "releases": [
+        {"id": 1, "tag": "v1.0.0", "assets": [
+          "fooapp_1.0.0_amd64.deb", "fooapp_1.0.0_arm64.deb", "fooapp_1.0.0_armhf.deb",
+          "fooapp-data_1.0.0_all.deb", "libc6_99.0_amd64.deb", "epochpkg_1_2.0_amd64.deb", "README.txt"]}
+      ]
+    },
+    "acme/fork": {
+      "id": 1002,
+      "releases": [{"id": 1, "tag": "v1.0.0", "assets": ["fork/fooapp_1.0.0_amd64.deb"]}]
+    },
+    "acme/baddigest": {
+      "id": 1003,
+      "releases": [{"id": 1, "tag": "v1.0", "assets": ["baddigest_1.0_amd64.deb"]}]
+    }
+  },
+  "bad_digest": ["baddigest_1.0_amd64.deb"]
+}

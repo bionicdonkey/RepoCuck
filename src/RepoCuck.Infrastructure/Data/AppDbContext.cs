@@ -48,5 +48,28 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         b.Entity<AptCurrent>().ToTable("apt_current");
         b.Entity<Setting>().ToTable("settings");
         b.Entity<Package>().ToTable("packages");
+
+        // Foreign keys (no navigations) so EF orders inserts/deletes correctly; cascade behaviour lives in the SQL schema.
+        void Fk<TDep, TPrincipal>(System.Linq.Expressions.Expression<Func<TDep, object?>> fk) where TDep : class where TPrincipal : class =>
+            b.Entity<TDep>().HasOne<TPrincipal>().WithMany().HasForeignKey(fk).OnDelete(DeleteBehavior.NoAction);
+        Fk<ChangeRequest, Repository>(x => x.RepositoryId);
+        Fk<ChangeRequest, User>(x => x.RequestedBy);
+        Fk<Release, Repository>(x => x.RepositoryId);
+        Fk<ReleaseAsset, Release>(x => x.ReleaseId);
+        Fk<PackageVariant, Package>(x => x.PackageId);
+        Fk<PackageVariant, Blob>(x => x.BlobId);
+        Fk<PackageSource, PackageVariant>(x => x.VariantId);
+        Fk<PackageSource, ReleaseAsset>(x => x.AssetId);
+        Fk<PackageSource, Repository>(x => x.RepositoryId);
+        Fk<PackageSource, Blob>(x => x.BlobId);
+        Fk<AptGeneration, AptSuite>(x => x.SuiteId);
+        Fk<AptGenerationFile, AptGeneration>(x => x.GenerationId);
+        Fk<AptGenerationFile, Blob>(x => x.BlobId);
+        Fk<AptCurrent, AptSuite>(x => x.SuiteId);
+        Fk<AptCurrent, AptGeneration>(x => x.GenerationId);
+        Fk<SyncRun, Repository>(x => x.RepositoryId);
+        Fk<RoleMapping, IdentityProvider>(x => x.ProviderId);
+        Fk<ExternalIdentity, User>(x => x.UserId);
+        Fk<ExternalIdentity, IdentityProvider>(x => x.ProviderId);
     }
 }

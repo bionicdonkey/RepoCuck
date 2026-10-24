@@ -1,0 +1,10 @@
+**/bin/
+**/obj/
+.git/
+.github/
+tests/
+docs/
+secrets/
+.env
+*.md
+tmp-e2e/

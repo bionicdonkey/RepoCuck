@@ -1,0 +1,80 @@
+@page "/admin/requests"
+@inject IDbContextFactory<AppDbContext> Dbf
+@inject RequestService Svc
+@inject IOptions<AptOptions> Apt
+@inject SettingsService Settings
+@functions {
+    public record Finding(string Package, string Version, string Architecture, string State, string? Reason);
+    public record Group(Guid RepoId, string Name, string State, string[] Archs, string? Description, string? License, List<Api.CoreApi.RequestRow> Requests, List<Finding> Findings, int Assets, int Failed);
+    public List<Group> Groups { get; set; } = [];
+    public string[] Allow { get; set; } = [];
+    [BindProperty] public string[] Archs { get; set; } = [];
+    [BindProperty] public bool IncludePrereleases { get; set; }
+    [BindProperty] public int HoldbackHours { get; set; }
+    [BindProperty] public string? Reason { get; set; }
+    [BindProperty] public string? DecisionNote { get; set; }
+
+    public async Task OnGetAsync(CancellationToken ct)
+    {
+        Allow = await Settings.GetAsync<string[]>(SettingsService.ArchAllowList, ct) ?? Architectures.ParseList(Apt.Value.Architectures);
+        await using var db = await Dbf.CreateDbContextAsync(ct);
+        var reqs = await Api.CoreApi.RequestQuery(db, r => r.Status == RequestStatus.Pending).OrderBy(r => r.CreatedAt).ToListAsync(ct);
+        foreach (var g in reqs.GroupBy(r => r.RepositoryId))
+        {
+            var repo = await db.Repositories.AsNoTracking().FirstAsync(r => r.Id == g.Key, ct);
+            var findings = await (from s in db.PackageSources.AsNoTracking() join v in db.PackageVariants on s.VariantId equals v.Id join p in db.Packages on v.PackageId equals p.Id
+                                  where s.RepositoryId == g.Key select new Finding(p.Name, v.Version, v.Architecture, v.State, v.QuarantineReason)).Take(50).ToListAsync(ct);
+            var assets = await (from a in db.ReleaseAssets join rel in db.Releases on a.ReleaseId equals rel.Id where rel.RepositoryId == g.Key select a.State).ToListAsync(ct);
+            Groups.Add(new Group(g.Key, repo.FullName, repo.State, repo.Architectures, repo.Description, repo.LicenseSpdx, g.ToList(), findings, assets.Count, assets.Count(a => a == AssetState.Failed)));
+        }
+    }
+
+    private async Task<IActionResult> Run(Func<Task<string>> a)
+    {
+        try { TempData["Flash"] = await a(); } catch (ServiceException e) { TempData["Error"] = e.Message; }
+        return RedirectToPage();
+    }
+    public Task<IActionResult> OnPostApproveAsync(Guid id, CancellationToken ct) => Run(async () =>
+    {
+        await Svc.ApproveAsync(id, User.RequireId(), new ApproveOverrides(Archs.Length == 0 ? null : Archs, IncludePrereleases, HoldbackHours, DecisionNote), ct);
+        return "Approved.";
+    });
+    public Task<IActionResult> OnPostRejectAsync(Guid id, CancellationToken ct) => Run(async () => { await Svc.RejectAsync(id, User.RequireId(), Reason, ct); return "Rejected."; });
+}
+@{ ViewData["Title"] = "Pending requests"; }
+<h1>Pending requests</h1>
+@if (Groups.Count == 0) { <p class="muted">Nothing is waiting for approval.</p> }
+@foreach (var g in Groups)
+{
+  <section class="card">
+    <h2 style="margin-top:0"><a href="/repos/@g.RepoId">@g.Name</a> <span class="badge @g.State">@g.State</span></h2>
+    <p class="muted">@g.Description · license @(g.License ?? "unknown") · @g.Assets asset(s) inspected, @g.Failed failed · currently @(g.Archs.Length == 0 ? "no" : string.Join(", ", g.Archs)) architectures</p>
+    @if (g.Findings.Count > 0) {
+      <details><summary>@g.Findings.Count package(s) found in quarantine inspection @if (g.Findings.Any(f => f.State == "quarantined")) { <span class="badge quarantined">@g.Findings.Count(f => f.State == "quarantined") flagged</span> }</summary>
+        <table><thead><tr><th>Package</th><th>Version</th><th>Arch</th><th>Flag</th></tr></thead><tbody>
+        @foreach (var f in g.Findings) { <tr><td>@f.Package</td><td>@f.Version</td><td>@f.Architecture</td><td>@f.Reason</td></tr> }
+        </tbody></table></details>
+    } else { <p class="muted">No packages inspected yet (sync may still be running).</p> }
+    @foreach (var r in g.Requests)
+    {
+      <div class="card">
+        <strong>@r.RequestedBy</strong> asks to <em>@(r.Kind == "add_repo" ? "add this repository" : "add architectures")</em>: @string.Join(", ", r.Architectures)
+        @if (!string.IsNullOrEmpty(r.Note)) { <div class="muted">“@r.Note”</div> }
+        <div class="row">
+          <form method="post" asp-page-handler="Approve" asp-route-id="@r.Id" class="row">
+            <fieldset><legend>Final architectures</legend>
+              @foreach (var a in Allow) { <label class="inline"><input type="checkbox" name="Archs" value="@a" checked="@(r.Architectures.Contains(a) || g.Archs.Contains(a))" /> @a</label> }
+            </fieldset>
+            @if (r.Kind == "add_repo") { <label class="inline"><input type="checkbox" name="IncludePrereleases" value="true" /> prereleases</label>
+              <label class="inline">holdback h <input name="HoldbackHours" type="number" min="0" max="720" value="0" style="width:5em" /></label> }
+            <button type="submit">Approve</button>
+          </form>
+          <form method="post" asp-page-handler="Reject" asp-route-id="@r.Id" class="row">
+            <input name="Reason" placeholder="Reason (required)" aria-label="Rejection reason" required maxlength="500" />
+            <button class="danger" type="submit">Reject</button>
+          </form>
+        </div>
+      </div>
+    }
+  </section>
+}

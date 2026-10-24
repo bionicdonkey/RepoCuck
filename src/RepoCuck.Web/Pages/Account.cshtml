@@ -1,0 +1,90 @@
+@page "/account"
+@inject UserService Users
+@inject IOptions<AuthOptions> AuthOpt
+@functions {
+    public User Me { get; set; } = new();
+    [BindProperty] public string? Current { get; set; }
+    [BindProperty] public string NewPassword { get; set; } = "";
+    [BindProperty] public string? Password { get; set; }
+    [BindProperty] public string? Code { get; set; }
+    public string? Secret { get; set; }
+    public string? OtpUri { get; set; }
+    public string[]? Recovery { get; set; }
+    [BindProperty(SupportsGet = true)] public bool MustChange { get; set; }
+
+    private async Task Load(CancellationToken ct) => Me = await Users.FindAsync(User.RequireId(), ct) ?? new User();
+    public Task OnGetAsync(CancellationToken ct) => Load(ct);
+
+    private async Task<IActionResult> Run(Func<Task> action, string ok, CancellationToken ct)
+    {
+        try { await action(); TempData["Flash"] = ok; }
+        catch (ServiceException e) { TempData["Error"] = e.Message; }
+        return RedirectToPage();
+    }
+    public async Task<IActionResult> OnPostPasswordAsync(CancellationToken ct)
+    {
+        try
+        {
+            await Users.ChangePasswordAsync(User.RequireId(), Current, NewPassword, false, ct);
+            var u = await Users.FindAsync(User.RequireId(), ct);
+            await HttpContext.SignOutAsync(AuthSetup.Scheme);
+            await AuthSetup.SignInAsync(HttpContext, u!, AuthOpt.Value);
+            TempData["Flash"] = "Password changed.";
+        }
+        catch (ServiceException e) { TempData["Error"] = e.Message; }
+        return RedirectToPage();
+    }
+    public async Task<IActionResult> OnPostTotpStartAsync(CancellationToken ct)
+    {
+        await Load(ct);
+        try { (Secret, OtpUri) = await Users.BeginTotpAsync(User.RequireId(), Password ?? "", ct); }
+        catch (ServiceException e) { TempData["Error"] = e.Message; return RedirectToPage(); }
+        return Page();
+    }
+    public async Task<IActionResult> OnPostTotpConfirmAsync(CancellationToken ct)
+    {
+        await Load(ct);
+        try { Recovery = await Users.ConfirmTotpAsync(User.RequireId(), Code ?? "", ct); }
+        catch (ServiceException e) { TempData["Error"] = e.Message; return RedirectToPage(); }
+        return Page();
+    }
+    public Task<IActionResult> OnPostTotpDisableAsync(CancellationToken ct) => Run(() => Users.DisableTotpAsync(User.RequireId(), Password ?? "", ct), "Two-factor authentication disabled.", ct);
+    public async Task<IActionResult> OnPostRevokeAsync(CancellationToken ct)
+    {
+        await Users.RevokeSessionsAsync(User.RequireId(), ct);
+        await HttpContext.SignOutAsync(AuthSetup.Scheme);
+        return LocalRedirect("/login");
+    }
+}
+@{ ViewData["Title"] = "Account"; }
+<h1>Account</h1>
+<p>@Me.DisplayName (@Me.Username) · role <strong>@Me.Role</strong></p>
+@if (MustChange || Me.MustChangePassword) { <div class="flash error">You must change your password before continuing.</div> }
+<h2>Change password</h2>
+<form method="post" asp-page-handler="Password" class="stack">
+  <label>Current password <input asp-for="Current" type="password" autocomplete="current-password" /></label>
+  <label>New password (12+ characters) <input asp-for="NewPassword" type="password" autocomplete="new-password" minlength="12" required /></label>
+  <button type="submit">Change password</button>
+</form>
+<h2>Two-factor authentication</h2>
+@if (Recovery is not null)
+{
+  <div class="flash">Two-factor authentication is enabled. Store these recovery codes now; they are shown once.</div>
+  <pre data-copy>@string.Join("\n", Recovery)</pre>
+}
+else if (Secret is not null)
+{
+  <p>Add this key to your authenticator app (time-based, 6 digits): <code>@Secret</code></p>
+  <p class="muted">@OtpUri</p>
+  <form method="post" asp-page-handler="TotpConfirm" class="stack"><label>Code from the app <input asp-for="Code" inputmode="numeric" autocomplete="one-time-code" required /></label><button type="submit">Confirm</button></form>
+}
+else if (Me.TotpEnabled)
+{
+  <form method="post" asp-page-handler="TotpDisable" class="stack"><label>Password <input asp-for="Password" type="password" required /></label><button class="danger" type="submit">Disable two-factor</button></form>
+}
+else
+{
+  <form method="post" asp-page-handler="TotpStart" class="stack"><label>Password <input asp-for="Password" type="password" required /></label><button type="submit">Enable two-factor</button></form>
+}
+<h2>Sessions</h2>
+<form method="post" asp-page-handler="Revoke"><button class="secondary" type="submit">Sign out everywhere</button></form>

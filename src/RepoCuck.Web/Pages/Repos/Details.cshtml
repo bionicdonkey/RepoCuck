@@ -1,0 +1,152 @@
+@page "/repos/{id:guid}"
+@inject IDbContextFactory<AppDbContext> Dbf
+@inject RepositoryAdminService Admin
+@inject RequestService Requests
+@inject IOptions<AptOptions> Apt
+@inject SettingsService Settings
+@functions {
+    public Repository Repo { get; set; } = new();
+    public string[] Allow { get; set; } = [];
+    public record PkgRow(string Package, string Version, string Architecture, string Channel, string State, string? Reason, bool Winner, string? Others);
+    public List<PkgRow> Packages { get; set; } = [];
+    public List<SyncRun> Runs { get; set; } = [];
+    public List<ReleaseAsset> ProblemAssets { get; set; } = [];
+    public List<Api.CoreApi.RequestRow> History { get; set; } = [];
+    public string? ProposedBy { get; set; }
+    [BindProperty] public string[] Archs { get; set; } = [];
+    [BindProperty] public string? Note { get; set; }
+    [BindProperty] public string? Reason { get; set; }
+    [BindProperty] public bool IncludePrereleases { get; set; }
+    [BindProperty] public int HoldbackHours { get; set; }
+    [BindProperty] public int SourcePriority { get; set; }
+    [BindProperty] public string? Notes { get; set; }
+    [BindProperty] public string? AssetIncludeGlob { get; set; }
+    [BindProperty] public string? AssetExcludeGlob { get; set; }
+
+    private async Task<bool> LoadAsync(Guid id, CancellationToken ct)
+    {
+        await using var db = await Dbf.CreateDbContextAsync(ct);
+        var r = await db.Repositories.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id, ct);
+        if (r is null) return false;
+        Repo = r;
+        Allow = await Settings.GetAsync<string[]>(SettingsService.ArchAllowList, ct) ?? Architectures.ParseList(Apt.Value.Architectures);
+        ProposedBy = r.ProposedBy is null ? null : await db.Users.Where(u => u.Id == r.ProposedBy).Select(u => u.DisplayName).FirstOrDefaultAsync(ct);
+        Runs = await db.SyncRuns.AsNoTracking().Where(s => s.RepositoryId == id).OrderByDescending(s => s.StartedAt).Take(10).ToListAsync(ct);
+        ProblemAssets = await (from a in db.ReleaseAssets.AsNoTracking() join rel in db.Releases on a.ReleaseId equals rel.Id
+                               where rel.RepositoryId == id && (a.State == AssetState.Failed || a.State == AssetState.Quarantined || a.State == AssetState.Excluded)
+                               orderby a.ObservedAt descending select a).Take(30).ToListAsync(ct);
+        Packages = await (from s in db.PackageSources.AsNoTracking() join v in db.PackageVariants on s.VariantId equals v.Id join p in db.Packages on v.PackageId equals p.Id
+                          where s.RepositoryId == id orderby p.Name, v.Version
+                          select new PkgRow(p.Name, v.Version, v.Architecture, v.Channel, v.State, v.QuarantineReason, s.IsWinner,
+                              string.Join(", ", db.PackageSources.Where(o => o.VariantId == v.Id && o.Id != s.Id).Join(db.Repositories, o => o.RepositoryId, rr => rr.Id, (o, rr) => rr.FullName)))).Take(500).ToListAsync(ct);
+        History = await Api.CoreApi.RequestQuery(db, r => r.RepositoryId == id).OrderByDescending(x => x.CreatedAt).Take(20).ToListAsync(ct);
+        Archs = Repo.Architectures; IncludePrereleases = Repo.IncludePrereleases; HoldbackHours = Repo.HoldbackHours; SourcePriority = Repo.SourcePriority;
+        Notes = Repo.Notes; AssetIncludeGlob = Repo.AssetIncludeGlob; AssetExcludeGlob = Repo.AssetExcludeGlob;
+        return true;
+    }
+
+    public async Task<IActionResult> OnGetAsync(Guid id, CancellationToken ct) => await LoadAsync(id, ct) ? Page() : NotFound();
+
+    private async Task<IActionResult> Run(Guid id, Func<Guid, Task<string>> action)
+    {
+        try { TempData["Flash"] = await action(User.RequireId()); }
+        catch (ServiceException e) { TempData["Error"] = e.Message; }
+        return RedirectToPage(new { id });
+    }
+
+    public Task<IActionResult> OnPostRequestArchAsync(Guid id, CancellationToken ct) => Run(id, async uid =>
+    {
+        await Requests.CreateAsync(uid, new CreateRequestInput(RequestKind.AddArch, null, null, null, id, Archs, Note), ct);
+        return "Architecture request submitted for approval.";
+    });
+    public Task<IActionResult> OnPostSaveAsync(Guid id, CancellationToken ct) => Run(id, async uid =>
+    {
+        EnsureAdmin();
+        await Admin.PatchAsync(id, uid, new RepoPatch(Archs, IncludePrereleases, HoldbackHours, AssetIncludeGlob, AssetExcludeGlob, null, null, Notes, SourcePriority), ct);
+        return "Saved.";
+    });
+    public Task<IActionResult> OnPostStateAsync(Guid id, string action, CancellationToken ct) => Run(id, async uid =>
+    {
+        EnsureAdmin();
+        await Admin.SetStateAsync(id, uid, action, Reason, ct);
+        return $"Repository {action} done.";
+    });
+    public Task<IActionResult> OnPostSyncAsync(Guid id, CancellationToken ct) => Run(id, async uid => { EnsureAdmin(); await Admin.EnqueueSyncAsync(id, uid, false, ct); return "Sync queued."; });
+    public Task<IActionResult> OnPostRearbitrateAsync(Guid id, CancellationToken ct) => Run(id, async uid => { EnsureAdmin(); return $"Re-arbitrated {await Admin.RearbitrateAsync(id, uid, ct)} package(s)."; });
+    private void EnsureAdmin() { if (!User.IsAdmin()) throw new ServiceException("forbidden", "Admin role required.", 403); }
+}
+@{ ViewData["Title"] = Repo.FullName; var admin = User.IsAdmin(); }
+<div class="row"><h1 style="flex:1">@Repo.FullName <span class="badge @Repo.State">@Repo.State</span></h1><a href="@Repo.HtmlUrl" rel="noopener noreferrer">GitHub ↗</a></div>
+<p>@Repo.Description</p>
+@if (!string.IsNullOrEmpty(Repo.StateReason)) { <div class="flash error">Reason: @Repo.StateReason</div> }
+@if (Repo.State == "proposed") { <div class="flash">This repository is awaiting approval. Packages are inspected but not published.</div> }
+<div class="grid2">
+  <div class="card"><strong>Architectures</strong><br>@(Repo.Architectures.Length == 0 ? "—" : string.Join(", ", Repo.Architectures))</div>
+  <div class="card"><strong>Prereleases</strong><br>@(Repo.IncludePrereleases ? "published to testing" : "ignored") · holdback @Repo.HoldbackHours h</div>
+  <div class="card"><strong>Requested by</strong><br>@(ProposedBy ?? "—") · license @(Repo.LicenseSpdx ?? "unknown")</div>
+  <div class="card"><strong>Last sync</strong><br>@(Repo.LastSyncedAt?.ToString("u") ?? "never") @Repo.LastSyncStatus @if (Repo.ConsecutiveFailures >= 5) { <span class="badge failed">stale</span> }</div>
+</div>
+
+@if (Repo.State is "active" or "paused")
+{
+  <h2>Request another architecture</h2>
+  <form method="post" asp-page-handler="RequestArch" class="stack">
+    <fieldset><legend>Architectures to add</legend>
+      @foreach (var a in Allow.Except(Repo.Architectures)) { <label class="inline"><input type="checkbox" name="Archs" value="@a" /> @a</label> }
+      @if (!Allow.Except(Repo.Architectures).Any()) { <span class="muted">All allowed architectures are already enabled.</span> }
+    </fieldset>
+    <label>Note (optional) <input asp-for="Note" maxlength="1000" /></label>
+    <button type="submit" class="secondary">Submit request</button>
+  </form>
+}
+
+@if (admin)
+{
+  <h2>Administration</h2>
+  <form method="post" asp-page-handler="Save" class="stack card">
+    <fieldset><legend>Architectures</legend>
+      @foreach (var a in Allow.Union(Repo.Architectures)) { <label class="inline"><input type="checkbox" name="Archs" value="@a" checked="@Archs.Contains(a)" /> @a</label> }
+    </fieldset>
+    <label class="inline"><input type="checkbox" asp-for="IncludePrereleases" /> Publish prereleases to the testing suite</label>
+    <label>Release holdback (hours) <input asp-for="HoldbackHours" type="number" min="0" max="720" /></label>
+    <label>Source priority <input asp-for="SourcePriority" type="number" /></label>
+    <label>Asset include glob <input asp-for="AssetIncludeGlob" /></label>
+    <label>Asset exclude glob <input asp-for="AssetExcludeGlob" /></label>
+    <label>Notes <textarea asp-for="Notes" rows="2"></textarea></label>
+    <button type="submit">Save</button>
+  </form>
+  <div class="row">
+    <form method="post" asp-page-handler="Sync"><button class="secondary" type="submit">Sync now</button></form>
+    <form method="post" asp-page-handler="Rearbitrate"><button class="secondary" type="submit">Re-arbitrate packages</button></form>
+    @foreach (var act in new[] { ("pause", "active"), ("resume", "paused"), ("remove", ""), ("block", ""), ("unblock", "blocked"), ("reinstate", "removed") })
+    {
+      if (act.Item2 == "" || act.Item2 == Repo.State)
+      { <form method="post" asp-page-handler="State" asp-route-action="@act.Item1"><input name="Reason" placeholder="reason (optional)" aria-label="Reason" style="width:14em" />
+          <button class="@(act.Item1 is "block" or "remove" ? "danger" : "secondary")" type="submit">@act.Item1</button></form> }
+    }
+  </div>
+}
+
+<h2>Packages</h2>
+@if (Packages.Count == 0) { <p class="muted">No packages ingested yet.</p> } else {
+<table><thead><tr><th>Package</th><th>Version</th><th>Arch</th><th>Channel</th><th>State</th><th>Source</th><th>Also offered by</th></tr></thead><tbody>
+@foreach (var p in Packages) {
+  <tr><td>@p.Package</td><td>@p.Version</td><td>@p.Architecture</td><td>@p.Channel</td>
+      <td><span class="badge @p.State">@p.State</span> @p.Reason</td><td>@(p.Winner ? "published source" : "alternate")</td><td>@p.Others</td></tr>
+}</tbody></table>}
+
+@if (ProblemAssets.Count > 0) {
+<h2>Skipped and failed assets</h2>
+<table><thead><tr><th>Asset</th><th>State</th><th>Reason</th></tr></thead><tbody>
+@foreach (var a in ProblemAssets) { <tr><td>@a.Name</td><td><span class="badge @a.State">@a.State</span></td><td>@(a.ExcludedReason ?? a.FailureReason)</td></tr> }
+</tbody></table>}
+
+<h2>Recent syncs</h2>
+<table><thead><tr><th>Started</th><th>Trigger</th><th>Status</th><th>Ingested</th><th>Skipped</th><th>Failed</th><th>Conflicts</th></tr></thead><tbody>
+@foreach (var s in Runs) { <tr><td>@s.StartedAt.ToString("u")</td><td>@s.Trigger</td><td><span class="badge @s.Status">@s.Status</span> @s.ErrorCategory</td><td>@s.AssetsIngested</td><td>@s.AssetsExcluded</td><td>@s.AssetsFailed</td><td>@s.ConflictsFound</td></tr> }
+</tbody></table>
+
+<h2>Request history</h2>
+<table><thead><tr><th>When</th><th>Who</th><th>Kind</th><th>Architectures</th><th>Status</th><th>Decision</th></tr></thead><tbody>
+@foreach (var h in History) { <tr><td>@h.CreatedAt.ToString("u")</td><td>@h.RequestedBy</td><td>@h.Kind</td><td>@string.Join(", ", h.Architectures)</td><td><span class="badge @h.Status">@h.Status</span></td><td>@h.DecisionNote</td></tr> }
+</tbody></table>

@@ -1,0 +1,46 @@
+@page "/admin/settings"
+@inject SettingsService Settings
+@inject IOptions<AptOptions> Apt
+@inject IOptions<RetentionOptions> Ret
+@inject IOptions<LimitsOptions> Lim
+@inject IOptions<SecurityOptions> Sec
+@inject ISigner Signer
+@inject IAuditService Audit
+@functions {
+    [BindProperty] public string ArchAllow { get; set; } = "";
+    [BindProperty] public string Reserved { get; set; } = "";
+    public string Fingerprint { get; set; } = "";
+    public DateTimeOffset? Expiry { get; set; }
+    public async Task OnGetAsync(CancellationToken ct)
+    {
+        ArchAllow = string.Join(", ", await Settings.GetAsync<string[]>(SettingsService.ArchAllowList, ct) ?? Architectures.ParseList(Apt.Value.Architectures));
+        Reserved = string.Join("\n", await Settings.GetAsync<string[]>(SettingsService.ReservedNames, ct) ?? []);
+        try { await Signer.EnsureReadyAsync(ct); Fingerprint = Signer.Fingerprint; Expiry = await Signer.GetKeyExpiryAsync(ct); } catch { Fingerprint = "(unavailable)"; }
+    }
+    public async Task<IActionResult> OnPostAsync(CancellationToken ct)
+    {
+        var archs = Architectures.ParseList(ArchAllow);
+        if (archs.Length == 0 || archs.Any(a => !System.Text.RegularExpressions.Regex.IsMatch(a, "^[a-z0-9][a-z0-9-]*$"))) { TempData["Error"] = "Invalid architecture list."; return RedirectToPage(); }
+        await Settings.SetAsync(SettingsService.ArchAllowList, archs, User.Id(), ct);
+        await Settings.SetAsync(SettingsService.ReservedNames, Reserved.Split(['\n', ',', ' '], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Select(x => x.ToLowerInvariant()).Distinct().ToArray(), User.Id(), ct);
+        await Audit.WriteAsync("settings.updated", User.Id(), "settings", null, ct: ct);
+        TempData["Flash"] = "Settings saved.";
+        return RedirectToPage();
+    }
+}
+@{ ViewData["Title"] = "Settings"; }
+<h1>Settings</h1>
+<form method="post" class="stack">
+  <label>Architecture allow-list (comma separated) <input asp-for="ArchAllow" /></label>
+  <label>Extra reserved package names (one per line; added to the built-in list) <textarea asp-for="Reserved" rows="5"></textarea></label>
+  <button type="submit">Save</button>
+</form>
+<h2>Signing key</h2>
+<p>Fingerprint: <code>@Fingerprint</code> @if (Expiry is not null) { <text>· expires @Expiry.Value.ToString("yyyy-MM-dd")</text> }<br>
+  <a href="/apt/repocuck.gpg">Binary key</a> · <a href="/apt/repocuck.asc">Armored key</a></p>
+<h2>Effective runtime configuration (read-only)</h2>
+<ul>
+  <li>Public scheme: <code>@Sec.Value.PublicScheme</code> · client IP header: <code>@Sec.Value.ClientIpHeader</code> · trusted proxies: <code>@(string.IsNullOrEmpty(Sec.Value.TrustedProxies) ? "none" : Sec.Value.TrustedProxies)</code></li>
+  <li>Retention: @Ret.Value.VersionsPerPackage versions per package, @Ret.Value.OrphanGraceDays-day orphan grace, @Math.Max(Ret.Value.GenerationCount, 5) generations / @Ret.Value.GenerationHours h</li>
+  <li>Limits: @Lim.Value.PendingRequestsPerUser pending requests per user, @Lim.Value.RequestsPerHour requests per hour</li>
+</ul>

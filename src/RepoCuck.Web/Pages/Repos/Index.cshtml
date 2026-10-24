@@ -1,0 +1,38 @@
+@page "/repos"
+@inject IDbContextFactory<AppDbContext> Dbf
+@functions {
+    public record Row(Guid Id, string FullName, string? Description, string State, string[] Architectures, bool IsArchived, DateTimeOffset? LastSyncedAt, string? LastSyncStatus, int Packages, bool Stale);
+    public List<Row> Rows { get; set; } = [];
+    [BindProperty(SupportsGet = true)] public string? State { get; set; }
+    [BindProperty(SupportsGet = true)] public string? Q { get; set; }
+
+    public async Task OnGetAsync(CancellationToken ct)
+    {
+        await using var db = await Dbf.CreateDbContextAsync(ct);
+        var q = db.Repositories.AsNoTracking().AsQueryable();
+        if (!string.IsNullOrEmpty(State)) q = q.Where(r => r.State == State);
+        if (!string.IsNullOrWhiteSpace(Q)) { var like = "%" + Q.Trim().Replace("%", "").Replace("_", "") + "%"; q = q.Where(r => EF.Functions.ILike(r.FullName, like)); }
+        Rows = await q.OrderBy(r => r.FullName).Take(500).Select(r => new Row(r.Id, r.FullName, r.Description, r.State, r.Architectures, r.IsArchived, r.LastSyncedAt, r.LastSyncStatus,
+            db.PackageSources.Count(s => s.RepositoryId == r.Id && s.IsWinner), r.ConsecutiveFailures >= 5)).ToListAsync(ct);
+    }
+}
+@{ ViewData["Title"] = "Repositories"; }
+<div class="row"><h1 style="flex:1">Repositories</h1><a class="btn" href="/requests/new">Request a repository</a></div>
+<form method="get" class="row" role="search">
+  <label class="inline">Search <input name="q" value="@Q" type="search" data-filter="#repos" /></label>
+  <label class="inline">State
+    <select name="state"><option value="">All</option>
+      @foreach (var s in new[] { "active", "proposed", "paused", "removed", "rejected", "blocked" }) { <option value="@s" selected="@(State == s)">@s</option> }
+    </select></label>
+  <button class="secondary" type="submit">Filter</button>
+</form>
+@if (Rows.Count == 0) { <p class="muted">No repositories match. <a href="/requests/new">Request one</a>.</p> }
+else {
+<table id="repos"><thead><tr><th>Repository</th><th>State</th><th>Architectures</th><th>Packages</th><th>Last sync</th></tr></thead><tbody>
+@foreach (var r in Rows) {
+  <tr><td><a href="/repos/@r.Id">@r.FullName</a><div class="muted">@r.Description</div></td>
+      <td><span class="badge @r.State">@r.State</span>@if (r.Stale) { <span class="badge failed">stale</span> }@if (r.IsArchived) { <span class="badge">archived</span> }</td>
+      <td>@string.Join(", ", r.Architectures)</td><td>@r.Packages</td>
+      <td>@(r.LastSyncedAt?.ToString("u") ?? "—") <span class="muted">@r.LastSyncStatus</span></td></tr>
+}
+</tbody></table>}

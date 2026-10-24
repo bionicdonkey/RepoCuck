@@ -26,6 +26,7 @@ public sealed class LimitsOptions
     public int PendingRequestsPerUser { get; set; } = 10;
     public int RequestsPerHour { get; set; } = 20;
     public int AptRequestsPerMinutePerIp { get; set; } = 600;
+    public int LoginAttemptsPer5MinutesPerIp { get; set; } = 10;
 }
 
 public sealed class RequestsOptions { public int ProposedExpiryDays { get; set; } = 30; }

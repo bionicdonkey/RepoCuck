@@ -1,0 +1,9 @@
+@page "/auth/logout"
+@functions {
+    public IActionResult OnGet() => LocalRedirect("/repos");
+    public async Task<IActionResult> OnPostAsync()
+    {
+        await HttpContext.SignOutAsync(AuthSetup.Scheme);
+        return LocalRedirect("/login");
+    }
+}

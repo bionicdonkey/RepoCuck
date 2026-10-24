@@ -54,7 +54,7 @@ public sealed class PublisherService(
             .Where(r => r.State == RepoState.Active || r.State == RepoState.Paused || r.State == RepoState.Removed).ToListAsync(ct))
             .Where(r => ArbitrationService.IsPublishable(r, now, grace)).ToList();
         var effective = repos.SelectMany(r => r.Architectures).Where(allow.Contains).Distinct().Order(StringComparer.Ordinal).ToList();
-        var advertised = effective.Append("all").ToList();
+        var advertised = new[] { "all" }.Concat(effective).ToList();
 
         var publishableIds = repos.Select(r => r.Id).ToList();
         var rows = await (from v in db.PackageVariants.AsNoTracking()

@@ -1,0 +1,30 @@
+@page "/admin/repositories"
+@inject RepositoryAdminService Admin
+@inject IOptions<AptOptions> Apt
+@inject SettingsService Settings
+@functions {
+    public string[] Allow { get; set; } = [];
+    [BindProperty] public string? Repository { get; set; }
+    [BindProperty] public string[] Archs { get; set; } = [];
+    public async Task OnGetAsync(CancellationToken ct) => Allow = await Settings.GetAsync<string[]>(SettingsService.ArchAllowList, ct) ?? Architectures.ParseList(Apt.Value.Architectures);
+    public async Task<IActionResult> OnPostAsync(CancellationToken ct)
+    {
+        try
+        {
+            var r = await Admin.AddDirectAsync(User.RequireId(), null, null, Repository, Archs, ct);
+            TempData["Flash"] = $"Added {r.FullName}.";
+            return RedirectToPage("/Repos/Details", new { id = r.Id });
+        }
+        catch (ServiceException e) { TempData["Error"] = e.Message; return RedirectToPage(); }
+    }
+}
+@{ ViewData["Title"] = "Add repository"; }
+<h1>Add a repository directly</h1>
+<p class="muted">Adds it as active immediately, without a request. Manage existing repositories from their <a href="/repos">detail pages</a>.</p>
+<form method="post" class="stack">
+  <label>GitHub repository <input asp-for="Repository" placeholder="owner/name or URL" required /></label>
+  <fieldset><legend>Architectures</legend>
+    @foreach (var a in Allow) { <label class="inline"><input type="checkbox" name="Archs" value="@a" checked="@(a == "amd64")" /> @a</label> }
+  </fieldset>
+  <button type="submit">Add repository</button>
+</form>

@@ -1,0 +1,39 @@
+@page
+@inject UserService Users
+@inject SetupTokenService Setup
+@inject IOptions<AuthOptions> Auth
+@functions {
+    [BindProperty] public string Token { get; set; } = "";
+    [BindProperty] public string Username { get; set; } = "";
+    [BindProperty] public string Password { get; set; } = "";
+    public string? Error { get; set; }
+
+    public async Task<IActionResult> OnGetAsync(CancellationToken ct)
+    {
+        if (!Setup.IsActive || await Users.AnyUsersAsync(ct)) return NotFound();
+        return Page();
+    }
+
+    public async Task<IActionResult> OnPostAsync(CancellationToken ct)
+    {
+        if (await Users.AnyUsersAsync(ct)) return NotFound();
+        if (!Setup.Consume(Token)) { Error = "Invalid or expired setup token."; return Page(); }
+        try
+        {
+            var u = await Users.CreateAsync(Username, Username, null, Password, Roles.Admin, false, null, ct);
+            await AuthSetup.SignInAsync(HttpContext, u, Auth.Value);
+            return LocalRedirect("/repos");
+        }
+        catch (ServiceException e) { Error = e.Message; Setup.Issue(); return Page(); }
+    }
+}
+@{ ViewData["Title"] = "First-run setup"; }
+<h1>Create the first administrator</h1>
+@if (Error is not null) { <div class="flash error" role="alert">@Error</div> }
+<p class="muted">Enter the setup token printed to the server's standard output at startup.</p>
+<form method="post" class="stack">
+  <label>Setup token <input asp-for="Token" autocomplete="off" required /></label>
+  <label>Username <input asp-for="Username" autocomplete="username" required /></label>
+  <label>Password (12+ characters) <input asp-for="Password" type="password" autocomplete="new-password" required minlength="12" /></label>
+  <button type="submit">Create administrator</button>
+</form>

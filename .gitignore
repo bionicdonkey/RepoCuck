@@ -487,3 +487,8 @@ secrets/
 *.pfx
 /data/
 /tmp-e2e/
+
+tests/e2e/fixture/assets/
+tests/e2e/fixture/state.json
+tests/e2e/e2e-app.log
+tests/e2e/admin_pw

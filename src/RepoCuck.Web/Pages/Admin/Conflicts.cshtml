@@ -1,0 +1,27 @@
+@page "/admin/conflicts"
+@inject IDbContextFactory<AppDbContext> Dbf
+@functions {
+    public record Src(string Repository, Guid RepoId, int Priority, bool Winner, bool Identical);
+    public record Row(string Package, string Version, string Architecture, List<Src> Sources);
+    public List<Row> Rows { get; set; } = [];
+    public async Task OnGetAsync(CancellationToken ct)
+    {
+        await using var db = await Dbf.CreateDbContextAsync(ct);
+        var raw = await (from v in db.PackageVariants.AsNoTracking() join p in db.Packages on v.PackageId equals p.Id
+                         where db.PackageSources.Count(s => s.VariantId == v.Id) > 1
+                         select new { p.Name, v.Version, v.Architecture, v.Id, v.BlobId }).Take(500).ToListAsync(ct);
+        foreach (var r in raw)
+        {
+            var srcs = await db.PackageSources.AsNoTracking().Where(s => s.VariantId == r.Id).Join(db.Repositories, s => s.RepositoryId, x => x.Id,
+                (s, x) => new Src(x.FullName, x.Id, x.SourcePriority, s.IsWinner, s.BlobId == r.BlobId)).ToListAsync(ct);
+            if (srcs.Any(s => !s.Identical)) Rows.Add(new Row(r.Name, r.Version, r.Architecture, srcs));
+        }
+    }
+}
+@{ ViewData["Title"] = "Package conflicts"; }
+<h1>Package identity conflicts</h1>
+<p class="muted">Different repositories offer different bytes for the same package, version and architecture. The first source wins; use a repository's source priority and "Re-arbitrate" to change that.</p>
+@if (Rows.Count == 0) { <p>No conflicts.</p> } else {
+<table><thead><tr><th>Package</th><th>Sources</th></tr></thead><tbody>
+@foreach (var r in Rows) { <tr><td>@r.Package @r.Version (@r.Architecture)</td><td>@foreach (var s in r.Sources) { <div><a href="/repos/@s.RepoId">@s.Repository</a> priority @s.Priority @(s.Winner ? "— published" : "") @(s.Identical ? "" : "(different bytes)")</div> }</td></tr> }
+</tbody></table>}
