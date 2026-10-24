@@ -8,7 +8,8 @@ dump="$(cd "$(dirname "$dump")" && pwd)/$(basename "$dump")"; data="$(cd "$(dirn
 cd "$(dirname "$0")"      # compose files live next to this script (override with COMPOSE_FILE)
 docker compose -p "$project" stop app || true
 docker compose -p "$project" up -d db
-until docker compose -p "$project" exec -T db pg_isready -U repocuck >/dev/null 2>&1; do sleep 1; done
+# TCP check: during first start the image runs a throw-away server on the unix socket only; the real one listens on TCP
+until docker compose -p "$project" exec -T db pg_isready -h 127.0.0.1 -U repocuck >/dev/null 2>&1; do sleep 1; done
 docker compose -p "$project" exec -T db psql -U repocuck -d postgres -c "drop database if exists repocuck with (force)" -c "create database repocuck owner repocuck"
 docker compose -p "$project" exec -T db pg_restore -U repocuck -d repocuck --no-owner < "$dump"
 docker run --rm -v "${project}_repocuck-data:/data" -v "$(dirname "$data"):/in:ro" alpine \
