@@ -104,7 +104,8 @@ public static class AdminApi
             Microsoft.Extensions.Options.IOptions<SecurityOptions> sec, Microsoft.Extensions.Options.IOptions<LimitsOptions> lim, CancellationToken ct) =>
             Results.Json(new
             {
-                version = typeof(AdminApi).Assembly.GetName().Version?.ToString(3) ?? "1.0.0",
+                version = (typeof(AdminApi).Assembly.GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
+                    .OfType<System.Reflection.AssemblyInformationalVersionAttribute>().FirstOrDefault()?.InformationalVersion ?? "dev").Split('+')[0],
                 archAllowList = await s.GetAsync<string[]>(SettingsService.ArchAllowList, ct) ?? Architectures.ParseList(apt.Value.Architectures),
                 reservedNames = await s.GetAsync<string[]>(SettingsService.ReservedNames, ct) ?? [],
                 retention = ret.Value,

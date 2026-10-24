@@ -1,0 +1,164 @@
+# Publishes the container image to GHCR.
+#   * Push a tag like v1.2.3 (or v1.2.3-rc.1)  -> test, build multi-arch, scan, push, sign, create the GitHub release.
+#   * Run manually ("Run workflow")           -> same build and scan, but nothing is pushed unless you tick "push".
+name: release
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      push:
+        description: "Push the image (and sign it) even though this is not a tag build"
+        type: boolean
+        default: false
+      version:
+        description: "Version to build for a manual run (e.g. 1.2.3 or 1.2.3-rc.1)"
+        default: "0.0.0-manual"
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      prerelease: ${{ steps.v.outputs.prerelease }}
+      publish: ${{ steps.v.outputs.publish }}
+    steps:
+      - id: v
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_PUSH: ${{ inputs.push }}
+        run: |
+          if [ "$REF_TYPE" = "tag" ]; then v="${REF_NAME#v}"; publish=true; else v="$INPUT_VERSION"; publish="$INPUT_PUSH"; fi
+          if ! [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then echo "::error::'$v' is not a semantic version (1.2.3 or 1.2.3-rc.1)"; exit 1; fi
+          pre=false; [[ "$v" == *-* ]] && pre=true
+          { echo "version=$v"; echo "prerelease=$pre"; echo "publish=${publish:-false}"; } >> "$GITHUB_OUTPUT"
+          echo "Releasing version $v (prerelease=$pre, publish=${publish:-false})"
+
+  test:
+    needs: validate
+    uses: ./.github/workflows/ci.yml
+
+  image:
+    needs: [validate, test]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write        # create the GitHub release
+      packages: write        # push to GHCR
+      id-token: write        # keyless image signing (cosign)
+      attestations: write
+    env:
+      VERSION: ${{ needs.validate.outputs.version }}
+      PUBLISH: ${{ needs.validate.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Image name (GHCR requires lower case)
+        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/repocuck" >> "$GITHUB_ENV"
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        if: env.PUBLISH == 'true'
+        with: { registry: ghcr.io, username: "${{ github.actor }}", password: "${{ secrets.GITHUB_TOKEN }}" }
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=raw,value=${{ env.VERSION }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ env.VERSION }},enable=${{ needs.validate.outputs.prerelease == 'false' }}
+            type=semver,pattern={{major}},value=${{ env.VERSION }},enable=${{ needs.validate.outputs.prerelease == 'false' && !startsWith(env.VERSION, '0.') }}
+            type=raw,value=latest,enable=${{ needs.validate.outputs.prerelease == 'false' }}
+          labels: |
+            org.opencontainers.image.version=${{ env.VERSION }}
+
+      # 1) native build + scan before anything is published
+      - name: Build amd64 image for scanning
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/Dockerfile
+          platforms: linux/amd64
+          load: true
+          tags: repocuck:scan
+          build-args: |
+            VERSION=${{ env.VERSION }}
+            VCS_REF=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Scan (fail on HIGH/CRITICAL findings that have a fix)
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:latest \
+            image --exit-code 1 --severity HIGH,CRITICAL --ignore-unfixed repocuck:scan
+      - name: Smoke test the amd64 image
+        run: |
+          docker run --rm --entrypoint sh repocuck:scan -c 'gpg --version | head -1 && xz --version | head -1 && id -u'
+          docker run --rm repocuck:scan 2>&1 | head -5 || true     # without configuration the app must refuse to start, not crash silently
+
+      # 2) multi-arch build (push only for real releases)
+      - id: push
+        name: Build ${{ env.PUBLISH == 'true' && 'and push' || '(no push)' }} linux/amd64 + linux/arm64
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: ${{ env.PUBLISH == 'true' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ env.VERSION }}
+            VCS_REF=${{ github.sha }}
+          provenance: mode=max
+          sbom: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke test the arm64 image (emulated)
+        if: env.PUBLISH == 'true'
+        run: |
+          docker run --rm --platform linux/arm64 --entrypoint sh "$IMAGE@${{ steps.push.outputs.digest }}" \
+            -c 'uname -m && gpg --version | head -1 && xz --version | head -1 && dotnet --list-runtimes | head -2'
+
+      - uses: sigstore/cosign-installer@v3
+        if: env.PUBLISH == 'true'
+      - name: Sign the image (keyless)
+        if: env.PUBLISH == 'true'
+        run: cosign sign --yes "$IMAGE@${{ steps.push.outputs.digest }}"
+
+      # 3) GitHub release with notes, SBOM and the deployment bundle
+      - name: SBOM (CycloneDX)
+        if: env.PUBLISH == 'true'
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ env.IMAGE }}@${{ steps.push.outputs.digest }}
+          format: cyclonedx-json
+          output-file: repocuck-${{ env.VERSION }}.sbom.cdx.json
+          upload-artifact: false
+          upload-release-assets: false
+      - name: Release notes and deployment bundle
+        if: env.PUBLISH == 'true' && github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRERELEASE: ${{ needs.validate.outputs.prerelease }}
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          # notes: the CHANGELOG section for this version if there is one, otherwise GitHub's generated notes
+          awk -v v="$VERSION" '$0 ~ "^## " v "( |$)" {f=1; next} /^## /{f=0} f' CHANGELOG.md > notes.md
+          [ -s notes.md ] || echo "Release $VERSION" > notes.md
+          {
+            echo; echo "## Container image"; echo
+            echo '```'; echo "docker pull $IMAGE:$VERSION"; echo "$IMAGE@$DIGEST"; echo '```'
+            echo "Platforms: linux/amd64, linux/arm64. Signed with cosign (keyless):"
+            echo '```'; echo "cosign verify $IMAGE@$DIGEST \\"
+            echo "  --certificate-identity-regexp 'https://github.com/${GITHUB_REPOSITORY}/.github/workflows/release.yml@.*' \\"
+            echo "  --certificate-oidc-issuer https://token.actions.githubusercontent.com"; echo '```'
+          } >> notes.md
+          tar czf "repocuck-deploy-$VERSION.tar.gz" -C deploy docker-compose.yml docker-compose.caddy.yml Caddyfile .env.example backup.sh restore.sh
+          args=(--title "RepoCuck $VERSION" --notes-file notes.md --verify-tag)
+          [ "$PRERELEASE" = "true" ] && args+=(--prerelease) || args+=(--latest)
+          gh release create "v$VERSION" "${args[@]}" "repocuck-deploy-$VERSION.tar.gz" "repocuck-$VERSION.sbom.cdx.json"

@@ -1,5 +1,7 @@
 # syntax=docker/dockerfile:1
-FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+# The build always runs natively; the published output is portable (framework-dependent), so one build serves every target platform.
+FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+ARG VERSION=0.0.0-dev
 WORKDIR /src
 COPY Directory.Packages.props Directory.Build.props NuGet.config ./
 COPY src/RepoCuck.Domain/RepoCuck.Domain.csproj src/RepoCuck.Domain/packages.lock.json src/RepoCuck.Domain/
@@ -12,9 +14,17 @@ RUN --mount=type=cache,target=/root/.nuget/packages \
     dotnet restore src/RepoCuck.Web/RepoCuck.Web.csproj --locked-mode
 COPY src ./src
 RUN --mount=type=cache,target=/root/.nuget/packages \
-    dotnet publish src/RepoCuck.Web/RepoCuck.Web.csproj -c Release -o /out --no-restore /p:UseAppHost=false
+    dotnet publish src/RepoCuck.Web/RepoCuck.Web.csproj -c Release -o /out --no-restore /p:UseAppHost=false /p:Version=${VERSION%%-*} /p:InformationalVersion=${VERSION}
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0-noble AS runtime
+ARG VERSION=0.0.0-dev
+ARG VCS_REF=unknown
+LABEL org.opencontainers.image.title="RepoCuck" \
+      org.opencontainers.image.description="Signed APT repository built from curated GitHub release .deb files" \
+      org.opencontainers.image.source="https://github.com/bionicdonkey/RepoCuck" \
+      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${VCS_REF}"
 # The base image already defines the non-root user `app` (UID 1654); reuse it.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends gnupg xz-utils ca-certificates curl \

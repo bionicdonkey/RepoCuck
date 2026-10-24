@@ -88,6 +88,31 @@ protected, so only do this on a trusted network.
 If `Bootstrap__AdminUsername` and `Bootstrap__AdminPasswordFile` are set the first admin is created with a forced password
 change. Otherwise a one-time token is printed to the container's stdout (not the structured log); open `/setup` within 30 minutes.
 
+### Getting the image
+
+Released images are published to GitHub Container Registry as `ghcr.io/bionicdonkey/repocuck` (linux/amd64 and linux/arm64) with tags
+`1.2.3`, `1.2`, `1` (not for `0.x`) and `latest` (prereleases such as `1.2.3-rc.1` only get their exact tag). The compose files default to
+`:latest`; set `REPOCUCK_IMAGE` in `deploy/.env` to pin a version, which is what you should do in production. While the repository is
+private the package is private too: `echo $TOKEN | docker login ghcr.io -u <user> --password-stdin` with a personal access token that has
+`read:packages`. Each release also attaches a deployment bundle (compose files, Caddyfile, `.env.example`, backup/restore scripts) and a
+CycloneDX SBOM, and the image is signed keylessly with cosign:
+
+```bash
+cosign verify ghcr.io/bionicdonkey/repocuck:1.2.3 \
+  --certificate-identity-regexp 'https://github.com/bionicdonkey/RepoCuck/.github/workflows/release.yml@.*' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
+### Cutting a release (maintainers)
+
+1. Add a `## 1.2.3` section to `CHANGELOG.md` (its text becomes the release notes) and merge to `main`.
+2. `git tag v1.2.3 && git push origin v1.2.3` (use `v1.2.3-rc.1` for a prerelease).
+3. The `release` workflow runs the full CI suite, builds the image natively, scans it with Trivy (HIGH/CRITICAL findings with a fix block the
+   release), smoke-tests it, then builds and pushes the multi-arch image with provenance and SBOM attestations, signs it, and creates the
+   GitHub release with the deployment bundle.
+
+*Actions → release → Run workflow* does the same build and scan without publishing anything (tick **push** to publish a non-tag build).
+
 ## 2. Configuration reference
 
 Environment variables use `__` as the section separator. Security-sensitive keys are environment/file only.
