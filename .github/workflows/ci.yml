@@ -23,9 +23,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: docker build -f deploy/Dockerfile -t repocuck:dev .
-      - name: Scan image (fail on high/critical with a fix)
-        uses: aquasecurity/trivy-action@0.28.0
-        with: { image-ref: repocuck:dev, severity: 'HIGH,CRITICAL', ignore-unfixed: true, exit-code: '1' }
+      - name: Scan image (fail on high/critical findings that have a fix)
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:latest \
+            image --exit-code 1 --severity HIGH,CRITICAL --ignore-unfixed repocuck:dev
       - run: SKIP_BUILD=1 tests/e2e/run_e2e.sh
       - run: python3 tests/e2e/restore_drill.py
       - name: SBOM
