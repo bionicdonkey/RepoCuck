@@ -18,7 +18,7 @@
         try
         {
             var res = await Svc.CreateAsync(User.RequireId(), new CreateRequestInput(RequestKind.AddRepo, null, null, Repository, null, Archs, Note), ct);
-            TempData["Flash"] = $"Request for {res.Repository.FullName} submitted. An administrator will review it.";
+            TempData["Flash"] = $"Requested {res.Repository.FullName}. An administrator will review it, and you can follow it here.";
             return RedirectToPage("/Requests/Index");
         }
         catch (ServiceException e)
@@ -30,13 +30,30 @@
     }
 }
 @{ ViewData["Title"] = "Request a repository"; }
-<h1>Request a repository</h1>
-@if (Error is not null) { <div class="flash error" role="alert">@Error @if (ExistingId is not null) { <a href="/repos/@ExistingId">View it</a> }</div> }
+<div class="page-head">
+  <div class="titles">
+    <h1>Request a repository</h1>
+    <p class="lede">Name a public GitHub project that attaches <code>.deb</code> files to its releases. An administrator reviews what it publishes before anything reaches the apt repository.</p>
+  </div>
+</div>
+@if (Error is not null)
+{
+  <div class="notice error" role="alert">@Ui.Icon("alert")<p>@Error @if (ExistingId is not null) { <a href="/repos/@ExistingId">Open the existing repository</a> }</p></div>
+}
 <form method="post" class="stack">
-  <label>GitHub repository <input asp-for="Repository" placeholder="owner/name or https://github.com/owner/name" required /></label>
-  <fieldset><legend>Architectures</legend>
-    @foreach (var a in Allow) { <label class="inline"><input type="checkbox" name="Archs" value="@a" checked="@(a == "amd64")" /> @a</label> }
+  <label>GitHub repository
+    <input asp-for="Repository" placeholder="owner/name or https://github.com/owner/name" required autocomplete="off" />
+    <small>For example <code>BurntSushi/ripgrep</code>. Private repositories can't be mirrored.</small>
+  </label>
+  <fieldset>
+    <legend>Architectures to publish</legend>
+    <div class="chips">
+      @foreach (var a in Allow) { <label class="chip"><input type="checkbox" name="Archs" value="@a" checked="@(a == "amd64")" /><span>@a</span></label> }
+    </div>
+    <p class="hint">Packages for other architectures are skipped. Architecture-independent (<code>all</code>) packages are always included.</p>
   </fieldset>
-  <label>Why do you want it? (optional) <textarea asp-for="Note" maxlength="1000" rows="3"></textarea></label>
-  <button type="submit">Submit request</button>
+  <label>Why do you need it? <small>Optional. Helps the reviewer decide.</small>
+    <textarea asp-for="Note" maxlength="1000" rows="3"></textarea>
+  </label>
+  <div class="row"><button type="submit">Submit request</button><a class="btn secondary" href="/requests">Cancel</a></div>
 </form>

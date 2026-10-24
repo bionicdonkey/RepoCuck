@@ -1,4 +1,3 @@
 @page
-@{ ViewData["Title"] = "Access denied"; }
-<h1>Access denied</h1>
-<p>You do not have permission to view this page.</p>
+@{ ViewData["Title"] = "Not allowed"; }
+<div class="empty">@Ui.Icon("slash")<h3>You don't have access to this page</h3><p>It's for administrators. If you think you should be able to open it, ask whoever runs this server.</p><a class="btn secondary" href="/repos">Back to repositories</a></div>

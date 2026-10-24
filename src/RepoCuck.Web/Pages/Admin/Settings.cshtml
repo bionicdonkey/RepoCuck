@@ -29,18 +29,28 @@
     }
 }
 @{ ViewData["Title"] = "Settings"; }
-<h1>Settings</h1>
+<div class="page-head"><div class="titles"><h1>Settings</h1><p class="lede">Choices an administrator can change while the server is running. Deployment settings come from environment variables and are shown read-only below.</p></div></div>
 <form method="post" class="stack">
-  <label>Architecture allow-list (comma separated) <input asp-for="ArchAllow" /></label>
-  <label>Extra reserved package names (one per line; added to the built-in list) <textarea asp-for="Reserved" rows="5"></textarea></label>
-  <button type="submit">Save</button>
+  <label>Architectures this server may publish <small>Comma-separated, for example <code>amd64, arm64, armhf</code>. Members can only request architectures from this list.</small><input asp-for="ArchAllow" /></label>
+  <label>Extra protected package names <small>One per line. These are added to the built-in list of distribution-critical names; a package using one of them is held for review.</small><textarea asp-for="Reserved" rows="5"></textarea></label>
+  <div><button type="submit">Save settings</button></div>
 </form>
-<h2>Signing key</h2>
-<p>Fingerprint: <code>@Fingerprint</code> @if (Expiry is not null) { <text>· expires @Expiry.Value.ToString("yyyy-MM-dd")</text> }<br>
-  <a href="/apt/repocuck.gpg">Binary key</a> · <a href="/apt/repocuck.asc">Armored key</a> · <a href="/admin/signing">Rotate</a></p>
-<h2>Effective runtime configuration (read-only)</h2>
-<ul>
-  <li>Public scheme: <code>@Sec.Value.PublicScheme</code> · client IP header: <code>@Sec.Value.ClientIpHeader</code> · trusted proxies: <code>@(string.IsNullOrEmpty(Sec.Value.TrustedProxies) ? "none" : Sec.Value.TrustedProxies)</code></li>
-  <li>Retention: @Ret.Value.VersionsPerPackage versions per package, @Ret.Value.OrphanGraceDays-day orphan grace, @Math.Max(Ret.Value.GenerationCount, 5) generations / @Ret.Value.GenerationHours h</li>
-  <li>Limits: @Lim.Value.PendingRequestsPerUser pending requests per user, @Lim.Value.RequestsPerHour requests per hour</li>
-</ul>
+<section class="section" aria-labelledby="h-key">
+  <div class="section-head"><h2 id="h-key">Signing key</h2><a href="/admin/signing">Rotate or inspect</a></div>
+  <dl class="facts">
+    <div><dt>Fingerprint</dt><dd><code>@Fingerprint</code></dd></div>
+    <div><dt>Expires</dt><dd>@(Expiry is null ? "Never" : Expiry.Value.ToString("d MMM yyyy"))</dd></div>
+    <div><dt>Public key for clients</dt><dd><a href="/apt/repocuck.gpg">repocuck.gpg</a> (binary), <a href="/apt/repocuck.asc">repocuck.asc</a> (armored)</dd></div>
+  </dl>
+</section>
+<section class="section" aria-labelledby="h-env">
+  <div class="section-head"><h2 id="h-env">Deployment (read-only)</h2></div>
+  <dl class="facts">
+    <div><dt>Public scheme</dt><dd><code>@Sec.Value.PublicScheme</code></dd></div>
+    <div><dt>Client address header</dt><dd><code>@Sec.Value.ClientIpHeader</code></dd></div>
+    <div><dt>Trusted proxies</dt><dd>@(string.IsNullOrEmpty(Sec.Value.TrustedProxies) ? "None" : Sec.Value.TrustedProxies)</dd></div>
+    <div><dt>Versions kept per package</dt><dd>@Ret.Value.VersionsPerPackage</dd></div>
+    <div><dt>Removed repositories stay published</dt><dd>@Ret.Value.OrphanGraceDays days</dd></div>
+    <div><dt>Request limits</dt><dd>@Lim.Value.PendingRequestsPerUser pending, @Lim.Value.RequestsPerHour per hour</dd></div>
+  </dl>
+</section>

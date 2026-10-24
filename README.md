@@ -15,6 +15,15 @@ pool) that `apt-get` can use directly.
 - Plain-HTTP origin for use behind a reverse proxy or **Cloudflare Tunnel** (LAN-only HTTP mode for homelabs)
 - .NET 10 + PostgreSQL, shipped as a single Docker image
 
+## What it looks like
+
+| | |
+| --- | --- |
+| ![Repositories, light](docs/screenshots/repositories-light.png) | ![Approvals, dark](docs/screenshots/approvals-dark.png) |
+| ![Repositories on a phone](docs/screenshots/repositories-mobile.png) | ![Public install page](docs/screenshots/public-page.png) |
+
+The interface is server-rendered (no JavaScript needed for any task), follows the system light/dark setting, and works down to phone width.
+
 ## Documentation
 
 | Document | Purpose |
@@ -69,6 +78,7 @@ dotnet test tests/RepoCuck.UnitTests
 dotnet test tests/RepoCuck.IntegrationTests       # needs Docker (Testcontainers) plus gpg/gpgv on the host
 tests/e2e/run_e2e.sh                              # builds the image, runs the full stack + a real apt client
 python3 tests/e2e/restore_drill.py                # backup -> destroy -> restore -> old client still works
+python3 tests/e2e/seed_demo.py                    # fill a running e2e stack with demo data (see tests/e2e/screenshots.js)
 ```
 
 ## Repository layout

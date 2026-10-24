@@ -1,0 +1,43 @@
+@inject IDbContextFactory<AppDbContext> NavDbf
+@{
+    var admin = User.IsInRole("admin");
+    int pending = 0;
+    if (admin)
+    {
+        await using var navDb = await NavDbf.CreateDbContextAsync();
+        pending = await navDb.ChangeRequests.CountAsync(r => r.Status == RequestStatus.Pending);
+    }
+    string Cur(string p) => Context.Request.Path.StartsWithSegments(p) ? "page" : "";
+    IHtmlContent Link(string href, string icon, string label, int count = 0)
+    {
+        var current = Cur(href);
+        var cur = current == "" ? "" : " aria-current=\"page\"";
+        var badge = count > 0 ? $"<span class=\"count\" aria-label=\"{count} waiting\">{count}</span>" : "";
+        return new HtmlString($"<a href=\"{href}\"{cur}>{Ui.Icon(icon).ToHtml()}<span>{label}</span>{badge}</a>");
+    }
+}
+<nav class="nav" aria-label="Main">
+  @Link("/repos", "repo", "Repositories")
+  @Link("/requests", "inbox", "My requests")
+  <a href="/apt/">@Ui.Icon("globe")<span>Public APT page</span></a>
+  @if (admin)
+  {
+    <p class="nav-title">Operate</p>
+    @Link("/admin/requests", "check-circle", "Approvals", pending)
+    @Link("/admin/quarantine", "shield", "Quarantine")
+    @Link("/admin/conflicts", "split", "Conflicts")
+    @Link("/admin/queue", "layers", "Job queue")
+    <p class="nav-title">Administer</p>
+    @Link("/admin/repositories", "plus", "Add repository")
+    @Link("/admin/users", "users", "Users")
+    @Link("/admin/providers", "login", "Single sign-on")
+    @Link("/admin/signing", "key", "Signing key")
+    @Link("/admin/settings", "sliders", "Settings")
+    @Link("/admin/audit", "list", "Audit log")
+  }
+</nav>
+<div class="me">
+  <div class="who"><strong>@(User.FindFirst("display")?.Value ?? User.Identity!.Name)</strong><span>@(admin ? "Administrator" : "Member")</span></div>
+  <a class="linklike" href="/account">@Ui.Icon("user")<span>Account and security</span></a>
+  <form method="post" action="/auth/logout"><button class="linklike" type="submit">@Ui.Icon("signout")<span>Sign out</span></button></form>
+</div>

@@ -19,12 +19,17 @@
     }
 }
 @{ ViewData["Title"] = "Add repository"; }
-<h1>Add a repository directly</h1>
-<p class="muted">Adds it as active immediately, without a request. Manage existing repositories from their <a href="/repos">detail pages</a>.</p>
+<div class="page-head">
+  <div class="titles">
+    <h1>Add a repository</h1>
+    <p class="lede">Skip the request queue and start mirroring a project now. It becomes active immediately and its first sync is queued. Existing repositories are managed from their own page.</p>
+  </div>
+</div>
 <form method="post" class="stack">
-  <label>GitHub repository <input asp-for="Repository" placeholder="owner/name or URL" required /></label>
-  <fieldset><legend>Architectures</legend>
-    @foreach (var a in Allow) { <label class="inline"><input type="checkbox" name="Archs" value="@a" checked="@(a == "amd64")" /> @a</label> }
+  <label>GitHub repository <input asp-for="Repository" placeholder="owner/name or https://github.com/owner/name" required autocomplete="off" /></label>
+  <fieldset>
+    <legend>Architectures to publish</legend>
+    <div class="chips">@foreach (var a in Allow) { <label class="chip"><input type="checkbox" name="Archs" value="@a" checked="@(a == "amd64")" /><span>@a</span></label> }</div>
   </fieldset>
-  <button type="submit">Add repository</button>
+  <div class="row"><button type="submit">Add repository</button><a class="btn secondary" href="/repos">Cancel</a></div>
 </form>

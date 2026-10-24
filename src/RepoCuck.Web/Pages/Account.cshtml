@@ -78,48 +78,65 @@
         return LocalRedirect("/login");
     }
 }
-@{ ViewData["Title"] = "Account"; }
-<h1>Account</h1>
-<p>@Me.DisplayName (@Me.Username) · role <strong>@Me.Role</strong></p>
-@if (MustChange || Me.MustChangePassword) { <div class="flash error">You must change your password before continuing.</div> }
-<h2>Change password</h2>
-<form method="post" asp-page-handler="Password" class="stack">
-  <label>Current password <input asp-for="Current" type="password" autocomplete="current-password" /></label>
-  <label>New password (12+ characters) <input asp-for="NewPassword" type="password" autocomplete="new-password" minlength="12" required /></label>
-  <button type="submit">Change password</button>
-</form>
-<h2>Two-factor authentication</h2>
-@if (Recovery is not null)
-{
-  <div class="flash">Two-factor authentication is enabled. Store these recovery codes now; they are shown once.</div>
-  <pre data-copy>@string.Join("\n", Recovery)</pre>
-}
-else if (Secret is not null)
-{
-  <p>Add this key to your authenticator app (time-based, 6 digits): <code>@Secret</code></p>
-  <p class="muted">@OtpUri</p>
-  <form method="post" asp-page-handler="TotpConfirm" class="stack"><label>Code from the app <input asp-for="Code" inputmode="numeric" autocomplete="one-time-code" required /></label><button type="submit">Confirm</button></form>
-}
-else if (Me.TotpEnabled)
-{
-  <form method="post" asp-page-handler="TotpDisable" class="stack"><label>Password <input asp-for="Password" type="password" required /></label><button class="danger" type="submit">Disable two-factor</button></form>
-}
-else
-{
-  <form method="post" asp-page-handler="TotpStart" class="stack"><label>Password <input asp-for="Password" type="password" required /></label><button type="submit">Enable two-factor</button></form>
-}
-@if (Request.Query["linked"].Count > 0) { <div class="flash">Provider linked.</div> }
-@if (Request.Query["linkError"].ToString() is { Length: > 0 } le) { <div class="flash error">@le</div> }
+@{ ViewData["Title"] = "Account and security"; }
+<div class="page-head"><div class="titles"><h1>Account and security</h1><p class="lede">@Me.DisplayName, signed in as <code>@Me.Username</code> (@(Me.Role == "admin" ? "administrator" : "member")).</p></div></div>
+@if (MustChange || Me.MustChangePassword) { <div class="notice warn" role="alert">@Ui.Icon("alert")<p><strong>Choose a new password to continue.</strong> Your administrator set a temporary one.</p></div> }
+@if (Request.Query["linked"].Count > 0) { <div class="flash" role="status">Provider linked.</div> }
+@if (Request.Query["linkError"].ToString() is { Length: > 0 } le) { <div class="notice error" role="alert">@Ui.Icon("alert")<p>@le</p></div> }
+
+<section class="section" aria-labelledby="h-pw">
+  <div class="section-head"><h2 id="h-pw">Password</h2></div>
+  <form method="post" asp-page-handler="Password" class="stack">
+    <label>Current password<input asp-for="Current" type="password" autocomplete="current-password" /></label>
+    <label>New password <small>At least 12 characters. A passphrase works well.</small><input asp-for="NewPassword" type="password" autocomplete="new-password" minlength="12" required /></label>
+    <div><button type="submit">Change password</button></div>
+  </form>
+</section>
+
+<section class="section" aria-labelledby="h-2fa">
+  <div class="section-head"><h2 id="h-2fa">Two-factor authentication</h2>@Ui.Pill(Me.TotpEnabled ? "enabled" : "disabled", Me.TotpEnabled ? "On" : "Off")</div>
+  @if (Recovery is not null)
+  {
+    <div class="notice warn">@Ui.Icon("key")<p><strong>Save these recovery codes now.</strong> Each works once if you lose your authenticator, and they are shown only this time.</p></div>
+    <div class="codeblock"><pre id="recovery" data-copy-text="@string.Join("\n", Recovery)"><code>@string.Join("\n", Recovery)</code></pre><button type="button" class="copy secondary sm" data-copy-target="#recovery" hidden>@Ui.Icon("copy")<span class="label">Copy</span></button></div>
+  }
+  else if (Secret is not null)
+  {
+    <p>Add this key to an authenticator app (time-based, six digits), then enter the code it shows.</p>
+    <pre><code>@Secret</code></pre>
+    <p class="muted">Or open this link on your phone: <code>@OtpUri</code></p>
+    <form method="post" asp-page-handler="TotpConfirm" class="stack"><label>Code from the app<input asp-for="Code" inputmode="numeric" autocomplete="one-time-code" required /></label><div><button type="submit">Turn on two-factor</button></div></form>
+  }
+  else if (Me.TotpEnabled)
+  {
+    <p>Sign-in asks for a code from your authenticator app.</p>
+    <form method="post" asp-page-handler="TotpDisable" class="stack"><label>Confirm with your password<input asp-for="Password" type="password" required /></label><div><button class="danger" type="submit">Turn off two-factor</button></div></form>
+  }
+  else
+  {
+    <p>Add a second step to sign-in. You'll need an authenticator app.</p>
+    <form method="post" asp-page-handler="TotpStart" class="stack"><label>Confirm with your password<input asp-for="Password" type="password" required /></label><div><button type="submit">Set up two-factor</button></div></form>
+  }
+</section>
+
 @if (Providers.Count > 0)
 {
-  <h2>Linked sign-in providers</h2>
-  <table><tbody>
-  @foreach (var p in Providers) {
-    <tr><td>@p.Name</td><td>@(p.Linked ? "linked" : "not linked")</td><td>
-      @if (p.Linked) { <form method="post" asp-page-handler="Unlink" asp-route-slug="@p.Slug"><button class="secondary" type="submit">Unlink</button></form> }
-      else { <form method="post" asp-page-handler="Link" asp-route-slug="@p.Slug"><button class="secondary" type="submit">Link (re-authenticates)</button></form> }
-    </td></tr> }
-  </tbody></table>
+  <section class="section" aria-labelledby="h-sso">
+    <div class="section-head"><h2 id="h-sso">Linked sign-in providers</h2></div>
+    <div class="tablewrap"><table><tbody>
+    @foreach (var p in Providers)
+    {
+      <tr><td><strong>@p.Name</strong></td><td>@Ui.Pill(p.Linked ? "active" : "quiet", p.Linked ? "Linked" : "Not linked")</td><td>
+        @if (p.Linked) { <form method="post" asp-page-handler="Unlink" asp-route-slug="@p.Slug"><button class="secondary sm" type="submit">Unlink</button></form> }
+        else { <form method="post" asp-page-handler="Link" asp-route-slug="@p.Slug"><button class="secondary sm" type="submit">Link (asks you to sign in again)</button></form> }
+      </td></tr>
+    }
+    </tbody></table></div>
+  </section>
 }
-<h2>Sessions</h2>
-<form method="post" asp-page-handler="Revoke"><button class="secondary" type="submit">Sign out everywhere</button></form>
+
+<section class="section" aria-labelledby="h-sess">
+  <div class="section-head"><h2 id="h-sess">Sessions</h2></div>
+  <p>Signed in somewhere you no longer trust? This ends every session, including this one.</p>
+  <form method="post" asp-page-handler="Revoke"><button class="secondary" type="submit">Sign out everywhere</button></form>
+</section>

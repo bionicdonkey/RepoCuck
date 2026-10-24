@@ -23,14 +23,22 @@
     }
 }
 @{ ViewData["Title"] = "Signing key"; }
-<h1>Repository signing key</h1>
-<table><thead><tr><th>Fingerprint</th><th>Expires</th><th>Signing</th></tr></thead><tbody>
-@foreach (var k in Keys) { <tr><td><code>@k.Fingerprint</code></td><td>@(k.Expires?.ToString("yyyy-MM-dd") ?? "never")</td><td>@(k.Active ? "yes" : "no")</td></tr> }
-</tbody></table>
-<p>Public key for clients: <a href="/apt/repocuck.gpg">repocuck.gpg</a> (binary) · <a href="/apt/repocuck.asc">repocuck.asc</a> (armored). During a rotation it contains both keys.</p>
-<h2>Rotation</h2>
-<p class="muted">Start: generate a new key and sign with both. Give clients time (≥ 7 days) to fetch the updated keyring, then complete the rotation to drop the old key.</p>
-<form method="post" class="row">
-  @if (!InProgress) { <button type="submit" name="action" value="start">Start rotation</button> }
-  else { <button type="submit" name="action" value="complete" class="danger">Complete rotation (drop old key)</button> }
-</form>
+<div class="page-head"><div class="titles"><h1>Signing key</h1><p class="lede">Every machine trusts this key. Rotating it is safe: for a while the repository is signed with both keys, so machines that haven't fetched the new one keep working.</p></div></div>
+<div class="tablewrap"><table>
+  <thead><tr><th>Fingerprint</th><th>Expires</th><th>Signing</th></tr></thead>
+  <tbody>@foreach (var k in Keys) { <tr><td><code>@k.Fingerprint</code></td><td>@(k.Expires?.ToString("d MMM yyyy") ?? "Never")</td><td>@Ui.Pill(k.Active ? "active" : "removed", k.Active ? "In use" : "Not in use")</td></tr> }</tbody>
+</table></div>
+<p class="section">Clients fetch the key from <a href="/apt/repocuck.gpg">repocuck.gpg</a> (binary) or <a href="/apt/repocuck.asc">repocuck.asc</a> (armored). During a rotation the file contains both keys.</p>
+<section class="section" aria-labelledby="h-rot">
+  <div class="section-head"><h2 id="h-rot">Rotation</h2></div>
+  @if (!InProgress)
+  {
+    <p>Start a rotation to generate a new key and sign with both. Wait at least a week for machines to refresh their keyring, then complete it.</p>
+    <form method="post"><button type="submit" name="action" value="start">Start rotation</button></form>
+  }
+  else
+  {
+    <div class="notice warn">@Ui.Icon("info")<p>A rotation is in progress. The repository is signed with both keys. Complete it once machines have the new key; the old key is then deleted.</p></div>
+    <form method="post"><button type="submit" name="action" value="complete" class="danger">Complete rotation and drop the old key</button></form>
+  }
+</section>

@@ -29,24 +29,38 @@
     public Task<IActionResult> OnPostMfaAsync(Guid id, CancellationToken ct) => Run(async () => { await Users.ResetMfaAsync(id, User.RequireId(), ct); return "Two-factor reset."; });
 }
 @{ ViewData["Title"] = "Users"; }
-<h1>Users</h1>
-<table><thead><tr><th>User</th><th>Role</th><th>Status</th><th>2FA</th><th>Last sign-in</th><th>Actions</th></tr></thead><tbody>
-@foreach (var u in All) {
-  <tr><td>@u.Username<div class="muted">@u.DisplayName</div></td><td>@u.Role</td><td><span class="badge @(u.IsActive ? "active" : "removed")">@(u.IsActive ? "enabled" : "disabled")</span></td>
-      <td>@(u.TotpEnabled ? "on" : "off")</td><td>@(u.LastLoginAt?.ToString("u") ?? "never")</td>
-      <td class="row">
-        <form method="post" asp-page-handler="Role" asp-route-id="@u.Id" asp-route-role="@(u.Role == "admin" ? "member" : "admin")"><button class="secondary" type="submit">Make @(u.Role == "admin" ? "member" : "admin")</button></form>
-        <form method="post" asp-page-handler="Active" asp-route-id="@u.Id" asp-route-active="@(!u.IsActive)"><button class="secondary" type="submit">@(u.IsActive ? "Disable" : "Enable")</button></form>
-        <form method="post" asp-page-handler="Reset" asp-route-id="@u.Id"><button class="secondary" type="submit">Reset password</button></form>
-        <form method="post" asp-page-handler="Unlock" asp-route-id="@u.Id"><button class="secondary" type="submit">Unlock</button></form>
-        @if (u.TotpEnabled) { <form method="post" asp-page-handler="Mfa" asp-route-id="@u.Id"><button class="secondary" type="submit">Reset 2FA</button></form> }
-      </td></tr>
-}</tbody></table>
-<h2>Create user</h2>
-<form method="post" asp-page-handler="Create" class="stack">
-  <label>Username <input asp-for="NewUsername" required /></label>
-  <label>Display name <input asp-for="NewDisplay" /></label>
-  <label>Initial password (12+ characters) <input asp-for="NewPassword" type="password" required minlength="12" autocomplete="new-password" /></label>
-  <label>Role <select asp-for="NewRole"><option value="member">member</option><option value="admin">admin</option></select></label>
-  <button type="submit">Create</button>
-</form>
+<div class="page-head"><div class="titles"><h1>Users</h1><p class="lede">Local accounts and people who signed in through single sign-on. Disabled users keep their history but can no longer sign in.</p></div></div>
+<div class="tablewrap"><table>
+  <thead><tr><th>User</th><th>Role</th><th>Status</th><th>Two-factor</th><th>Last sign-in</th><th><span class="sr-only">Actions</span></th></tr></thead>
+  <tbody>
+  @foreach (var u in All)
+  {
+    <tr>
+      <td><strong>@u.Username</strong>@if (u.DisplayName != u.Username) { <small class="muted"> @u.DisplayName</small> }</td>
+      <td>@(u.Role == "admin" ? "Administrator" : "Member")@if (u.RoleLocked) { <small class="muted"> (set by an admin)</small> }</td>
+      <td>@Ui.Pill(u.IsActive ? "enabled" : "disabled")</td>
+      <td>@(u.TotpEnabled ? "On" : "Off")</td>
+      <td class="nowrap">@Ui.Ago(u.LastLoginAt)</td>
+      <td>
+        <div class="row">
+          <form method="post" asp-page-handler="Role" asp-route-id="@u.Id" asp-route-role="@(u.Role == "admin" ? "member" : "admin")"><button class="secondary sm" type="submit">Make @(u.Role == "admin" ? "member" : "administrator")</button></form>
+          <form method="post" asp-page-handler="Active" asp-route-id="@u.Id" asp-route-active="@(!u.IsActive)"><button class="secondary sm" type="submit">@(u.IsActive ? "Disable" : "Enable")</button></form>
+          <form method="post" asp-page-handler="Reset" asp-route-id="@u.Id"><button class="secondary sm" type="submit">Reset password</button></form>
+          <form method="post" asp-page-handler="Unlock" asp-route-id="@u.Id"><button class="secondary sm" type="submit">Unlock</button></form>
+          @if (u.TotpEnabled) { <form method="post" asp-page-handler="Mfa" asp-route-id="@u.Id"><button class="secondary sm" type="submit">Reset two-factor</button></form> }
+        </div>
+      </td>
+    </tr>
+  }
+  </tbody>
+</table></div>
+<section class="section" aria-labelledby="h-new">
+  <div class="section-head"><h2 id="h-new">Create a local user</h2></div>
+  <form method="post" asp-page-handler="Create" class="stack">
+    <label>Username <small>Lower-case letters, digits, dot, dash or underscore.</small><input asp-for="NewUsername" required autocomplete="off" /></label>
+    <label>Display name<input asp-for="NewDisplay" /></label>
+    <label>Initial password <small>At least 12 characters. They must change it at first sign-in.</small><input asp-for="NewPassword" type="password" required minlength="12" autocomplete="new-password" /></label>
+    <label>Role<select asp-for="NewRole"><option value="member">Member</option><option value="admin">Administrator</option></select></label>
+    <div><button type="submit">Create user</button></div>
+  </form>
+</section>

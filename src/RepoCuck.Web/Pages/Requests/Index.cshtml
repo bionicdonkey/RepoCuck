@@ -17,11 +17,39 @@
     }
 }
 @{ ViewData["Title"] = "My requests"; }
-<div class="row"><h1 class="grow">My requests</h1><a class="btn" href="/requests/new">New request</a></div>
-@if (Rows.Count == 0) { <p class="muted">You have not requested anything yet.</p> } else {
-<table><thead><tr><th>When</th><th>Repository</th><th>Kind</th><th>Architectures</th><th>Status</th><th>Decision</th><th></th></tr></thead><tbody>
-@foreach (var r in Rows) {
-  <tr><td>@r.CreatedAt.ToString("u")</td><td><a href="/repos/@r.RepositoryId">@r.RepositoryName</a></td><td>@r.Kind</td><td>@string.Join(", ", r.Architectures)</td>
-      <td><span class="badge @r.Status">@r.Status</span></td><td>@r.DecisionNote</td>
-      <td>@if (r.Status == "pending") { <form method="post" asp-page-handler="Cancel" asp-route-id="@r.Id"><button class="secondary" type="submit">Cancel</button></form> }</td></tr>
-}</tbody></table>}
+<div class="page-head">
+  <div class="titles">
+    <h1>My requests</h1>
+    <p class="lede">Projects and architectures you have asked for, and what the administrators decided.</p>
+  </div>
+  <div class="actions"><a class="btn" href="/requests/new">@Ui.Icon("plus")New request</a></div>
+</div>
+@if (Rows.Count == 0)
+{
+  <div class="empty">
+    @Ui.Icon("inbox")
+    <h3>You haven't asked for anything yet</h3>
+    <p>Missing a tool? Request its GitHub repository and an administrator will review it.</p>
+    <a class="btn" href="/requests/new">Request a repository</a>
+  </div>
+}
+else
+{
+  <div class="tablewrap"><table>
+    <thead><tr><th>Repository</th><th>Request</th><th>Architectures</th><th>Status</th><th>Decision</th><th>Asked</th><th><span class="sr-only">Actions</span></th></tr></thead>
+    <tbody>
+    @foreach (var r in Rows)
+    {
+      <tr>
+        <td><a href="/repos/@r.RepositoryId">@r.RepositoryName</a></td>
+        <td>@(r.Kind == "add_repo" ? "Add repository" : "Add architectures")</td>
+        <td>@Ui.Arches(r.Architectures)</td>
+        <td>@Ui.Pill(r.Status)</td>
+        <td>@r.DecisionNote</td>
+        <td class="nowrap">@Ui.Ago(r.CreatedAt)</td>
+        <td>@if (r.Status == "pending") { <form method="post" asp-page-handler="Cancel" asp-route-id="@r.Id"><button class="secondary sm" type="submit">Cancel request</button></form> }</td>
+      </tr>
+    }
+    </tbody>
+  </table></div>
+}

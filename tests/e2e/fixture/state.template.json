@@ -1,21 +1,76 @@
 {
-  "repos": {
-    "acme/fooapp": {
-      "id": 1001,
-      "releases": [
-        {"id": 1, "tag": "v1.0.0", "assets": [
-          "fooapp_1.0.0_amd64.deb", "fooapp_1.0.0_arm64.deb", "fooapp_1.0.0_armhf.deb",
-          "fooapp-data_1.0.0_all.deb", "libc6_99.0_amd64.deb", "epochpkg_1_2.0_amd64.deb", "README.txt"]}
-      ]
-    },
-    "acme/fork": {
-      "id": 1002,
-      "releases": [{"id": 1, "tag": "v1.0.0", "assets": ["fork/fooapp_1.0.0_amd64.deb"]}]
-    },
-    "acme/baddigest": {
-      "id": 1003,
-      "releases": [{"id": 1, "tag": "v1.0", "assets": ["baddigest_1.0_amd64.deb"]}]
+ "repos": {
+  "acme/fooapp": {
+   "id": 1001,
+   "releases": [
+    {
+     "id": 1,
+     "tag": "v1.0.0",
+     "assets": [
+      "fooapp_1.0.0_amd64.deb",
+      "fooapp_1.0.0_arm64.deb",
+      "fooapp_1.0.0_armhf.deb",
+      "fooapp-data_1.0.0_all.deb",
+      "libc6_99.0_amd64.deb",
+      "epochpkg_1_2.0_amd64.deb",
+      "README.txt"
+     ]
     }
+   ]
   },
-  "bad_digest": ["baddigest_1.0_amd64.deb"]
+  "acme/fork": {
+   "id": 1002,
+   "releases": [
+    {
+     "id": 1,
+     "tag": "v1.0.0",
+     "assets": [
+      "fork/fooapp_1.0.0_amd64.deb"
+     ]
+    }
+   ]
+  },
+  "acme/baddigest": {
+   "id": 1003,
+   "releases": [
+    {
+     "id": 1,
+     "tag": "v1.0",
+     "assets": [
+      "baddigest_1.0_amd64.deb"
+     ]
+    }
+   ]
+  },
+  "acme/newtool": {
+   "id": 1004,
+   "description": "A tiny command-line tool for demos",
+   "releases": [
+    {
+     "id": 1,
+     "tag": "v2.3.1",
+     "assets": [
+      "newtool_2.3.1_amd64.deb",
+      "newtool_2.3.1_arm64.deb",
+      "openssh-server_9.9_amd64.deb"
+     ]
+    }
+   ]
+  },
+  "acme/rejectme": {
+   "id": 1005,
+   "releases": [
+    {
+     "id": 1,
+     "tag": "v0.1",
+     "assets": [
+      "rejectme_0.1_amd64.deb"
+     ]
+    }
+   ]
+  }
+ },
+ "bad_digest": [
+  "baddigest_1.0_amd64.deb"
+ ]
 }

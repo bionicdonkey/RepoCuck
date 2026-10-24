@@ -27,13 +27,15 @@
         catch (ServiceException e) { Error = e.Message; Setup.Issue(); return Page(); }
     }
 }
-@{ ViewData["Title"] = "First-run setup"; }
-<h1>Create the first administrator</h1>
-@if (Error is not null) { <div class="flash error" role="alert">@Error</div> }
-<p class="muted">Enter the setup token printed to the server's standard output at startup.</p>
-<form method="post" class="stack">
-  <label>Setup token <input asp-for="Token" autocomplete="off" required /></label>
-  <label>Username <input asp-for="Username" autocomplete="username" required /></label>
-  <label>Password (12+ characters) <input asp-for="Password" type="password" autocomplete="new-password" required minlength="12" /></label>
-  <button type="submit">Create administrator</button>
+@{ Layout = "_AuthLayout"; ViewData["Title"] = "Set up RepoCuck"; }
+<div class="stack">
+  <h1>Create the first administrator</h1>
+  <p class="muted">Paste the one-time setup token the server printed to its console when it started. It expires 30 minutes after startup and works once.</p>
+  @if (Error is not null) { <div class="notice error" role="alert">@Ui.Icon("alert")<p>@Error</p></div> }
+</div>
+<form method="post" class="form">
+  <label>Setup token<input asp-for="Token" autocomplete="off" required /></label>
+  <label>Username<input asp-for="Username" autocomplete="username" required /></label>
+  <label>Password <small>At least 12 characters.</small><input asp-for="Password" type="password" autocomplete="new-password" required minlength="12" /></label>
+  <div><button type="submit">Create administrator</button></div>
 </form>

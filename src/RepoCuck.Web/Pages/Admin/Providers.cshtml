@@ -41,7 +41,13 @@
     {
         await using var db = await Dbf.CreateDbContextAsync(ct);
         var p = await db.IdentityProviders.AsNoTracking().FirstAsync(x => x.Id == id, ct);
-        TempData["Flash"] = System.Text.Json.JsonSerializer.Serialize(await Api.ProviderApi.TestAsync(p, Http.CreateClient(), ct));
+        var r = System.Text.Json.JsonSerializer.SerializeToElement(await Api.ProviderApi.TestAsync(p, Http.CreateClient(), ct));
+        if (r.GetProperty("ok").GetBoolean())
+        {
+            var warnings = r.TryGetProperty("warnings", out var w) ? w.EnumerateArray().Select(x => x.GetString()).ToList() : [];
+            TempData["Flash"] = $"{p.DisplayName}: discovery works and {r.GetProperty("jwksKeys").GetInt32()} signing key(s) were found. Sign-out at the provider is {(r.GetProperty("endSession").GetBoolean() ? "supported" : "not advertised")}." + (warnings.Count > 0 ? " Heads-up: " + string.Join(" ", warnings) : "");
+        }
+        else TempData["Error"] = $"{p.DisplayName}: " + (r.TryGetProperty("error", out var e) ? e.GetString() : "the provider could not be checked.");
         return RedirectToPage();
     }
 
@@ -73,31 +79,40 @@
         return RedirectToPage();
     }
 }
-@{ ViewData["Title"] = "SSO providers"; }
-<h1>Single sign-on (OpenID Connect)</h1>
-<p class="muted">Redirect URI to register at the provider: <code>@(Request.Scheme)://@Request.Host/signin-oidc/&lt;slug&gt;</code> · post-logout URI: <code>…/signout-callback-oidc/&lt;slug&gt;</code>. Authorization code flow with PKCE (S256).</p>
+@{ ViewData["Title"] = "Single sign-on"; }
+<div class="page-head"><div class="titles"><h1>Single sign-on</h1>
+  <p class="lede">Let people sign in with your identity provider (OpenID Connect, authorization code with PKCE). Local accounts keep working as the break-glass way in.</p></div></div>
+<div class="notice">@Ui.Icon("info")<p>Register this redirect URI at the provider: <code>@(Request.Scheme)://@Request.Host/signin-oidc/&lt;slug&gt;</code> and, for sign-out, <code>…/signout-callback-oidc/&lt;slug&gt;</code>, where <code>&lt;slug&gt;</code> is the short name you choose below.</p></div>
+@if (Providers.Count == 0) { <div class="empty">@Ui.Icon("login")<h3>No identity providers yet</h3><p>Add one below. Until then everyone signs in with a local account.</p></div> }
 @foreach (var p in Providers)
 {
-  <section class="card">
-    <h2 class="flush">@p.DisplayName <code>@p.Slug</code> <span class="badge @(p.Enabled ? "active" : "removed")">@(p.Enabled ? "enabled" : "disabled")</span></h2>
-    <p>@p.Authority · client <code>@p.ClientId</code> · secret @(p.ClientSecretEnc is not null || p.ClientSecretFile is not null ? "set" : "not set") · scopes <code>@p.Scopes</code> · groups claim <code>@p.GroupClaim</code></p>
-    <div class="row">
-      <form method="post" asp-page-handler="Test" asp-route-id="@p.Id"><button class="secondary" type="submit">Test discovery &amp; keys</button></form>
+  <section class="panel" aria-labelledby="p-@p.Id">
+    <div class="section-head"><h2 id="p-@p.Id">@p.DisplayName</h2>@Ui.Pill(p.Enabled ? "enabled" : "disabled")<code>@p.Slug</code></div>
+    <dl class="facts">
+      <div><dt>Authority</dt><dd>@p.Authority</dd></div>
+      <div><dt>Client ID</dt><dd><code>@p.ClientId</code></dd></div>
+      <div><dt>Client secret</dt><dd>@(p.ClientSecretEnc is not null || p.ClientSecretFile is not null ? "Stored" : "Not set")</dd></div>
+      <div><dt>Group claim</dt><dd><code>@p.GroupClaim</code></dd></div>
+    </dl>
+    <div class="row section">
+      <form method="post" asp-page-handler="Test" asp-route-id="@p.Id"><button class="secondary" type="submit">Test connection</button></form>
       <form method="post" asp-page-handler="Toggle" asp-route-id="@p.Id" asp-route-enabled="@(!p.Enabled)"><button class="secondary" type="submit">@(p.Enabled ? "Disable" : "Enable")</button></form>
     </div>
     <form method="post" asp-page-handler="Mappings" asp-route-id="@p.Id" class="stack">
-      <label>Group → role mappings (one per line, <code>group = admin</code> or <code>group = member</code>; admin wins; unmapped users are members)
+      <label>Group to role mappings <small>One per line, like <code>homelab-admins = admin</code>. Administrator wins when several match; people in no mapped group are members. Applied at each person's next sign-in.</small>
         <textarea name="MappingsText" rows="4">@string.Join("\n", (Maps.TryGetValue(p.Id, out var ms) ? ms : []).Select(m => $"{m.ClaimValue} = {m.Role}"))</textarea></label>
-      <button type="submit">Save mappings</button>
+      <div><button type="submit">Save mappings</button></div>
     </form>
   </section>
 }
-<h2>Add a provider</h2>
-<form method="post" asp-page-handler="Create" class="stack">
-  <label>Slug (lowercase, used in URLs) <input name="slug" required pattern="[a-z0-9][a-z0-9-]{1,30}" /></label>
-  <label>Display name <input name="displayName" required /></label>
-  <label>Authority (issuer URL) <input name="authority" placeholder="https://idp.example.com/realms/main" required /></label>
-  <label>Client ID <input name="clientId" required /></label>
-  <label>Client secret (stored encrypted; leave empty for public clients) <input name="clientSecret" type="password" autocomplete="off" /></label>
-  <button type="submit">Add provider</button>
-</form>
+<section class="section" aria-labelledby="h-add">
+  <div class="section-head"><h2 id="h-add">Add a provider</h2></div>
+  <form method="post" asp-page-handler="Create" class="stack">
+    <label>Short name <small>Lower-case letters, digits and dashes. Used in URLs.</small><input name="slug" required pattern="[a-z0-9][a-z0-9\-]{1,30}" /></label>
+    <label>Name shown on the sign-in page<input name="displayName" required /></label>
+    <label>Authority <small>The issuer URL, for example <code>https://auth.example.com/realms/home</code>.</small><input name="authority" required /></label>
+    <label>Client ID<input name="clientId" required /></label>
+    <label>Client secret <small>Stored encrypted. Leave empty for a public client.</small><input name="clientSecret" type="password" autocomplete="off" /></label>
+    <div><button type="submit">Add provider</button></div>
+  </form>
+</section>

@@ -1,0 +1,32 @@
+@{ var nonce = Context.Nonce(); }
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>@(ViewData["Title"] ?? "Sign in") - RepoCuck</title>
+  <link rel="preload" href="/fonts/bricolage-grotesque.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/css/site.css">
+</head>
+<body>
+<partial name="_Icons" />
+<a class="skip" href="#main">Skip to content</a>
+<div class="auth">
+  <section class="auth-side" aria-label="About RepoCuck">
+    <a class="brand" href="/login"><partial name="_Mark" />RepoCuck</a>
+    <div class="stack">
+      <h2>Your own signed APT repository, built from GitHub releases.</h2>
+      <p>Request a project, an administrator approves it, and every machine installs it with plain <code>apt</code>.</p>
+    </div>
+    <pre aria-hidden="true"><code><span class="kw">deb</span> <span class="opt">[signed-by=/etc/apt/keyrings/repocuck.gpg]</span>
+https://apt.example.com/apt <span class="suite">stable</span> main</code></pre>
+  </section>
+  <main id="main" class="auth-main">
+    @RenderBody()
+  </main>
+</div>
+<script src="/js/site.js" nonce="@nonce"></script>
+</body>
+</html>

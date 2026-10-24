@@ -1,51 +1,53 @@
+@using Microsoft.AspNetCore.Html
 @{
     var nonce = Context.Nonce();
-    var admin = User.IsInRole("admin");
-    string Active(string p) => Context.Request.Path.StartsWithSegments(p) ? "aria-current=\"page\"" : "";
+    var signedIn = User.Identity?.IsAuthenticated == true;
 }
 <!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>@(ViewData["Title"] ?? "RepoCuck") · RepoCuck</title>
+  <meta name="color-scheme" content="light dark">
+  <title>@(ViewData["Title"] ?? "RepoCuck") - RepoCuck</title>
+  <link rel="preload" href="/fonts/bricolage-grotesque.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/fonts/atkinson-next.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/css/site.css">
 </head>
 <body>
+<partial name="_Icons" />
 <a class="skip" href="#main">Skip to content</a>
-<header class="topbar">
-  <a class="brand" href="/repos">RepoCuck</a>
-  @if (User.Identity?.IsAuthenticated == true)
-  {
-    <nav aria-label="Main">
-      <a href="/repos" @Html.Raw(Active("/repos"))>Repositories</a>
-      <a href="/requests" @Html.Raw(Active("/requests"))>Requests</a>
-      <a href="/apt/">APT repo</a>
-      @if (admin)
-      {
-        <a href="/admin/requests" @Html.Raw(Active("/admin/requests"))>Approvals</a>
-        <a href="/admin/repositories" @Html.Raw(Active("/admin/repositories"))>Manage</a>
-        <a href="/admin/users" @Html.Raw(Active("/admin/users"))>Users</a>
-        <a href="/admin/providers" @Html.Raw(Active("/admin/providers"))>SSO</a>
-        <a href="/admin/quarantine" @Html.Raw(Active("/admin/quarantine"))>Quarantine</a>
-        <a href="/admin/conflicts" @Html.Raw(Active("/admin/conflicts"))>Conflicts</a>
-        <a href="/admin/settings" @Html.Raw(Active("/admin/settings"))>Settings</a>
-        <a href="/admin/audit" @Html.Raw(Active("/admin/audit"))>Audit</a>
-        <a href="/admin/signing" @Html.Raw(Active("/admin/signing"))>Key</a>
-        <a href="/admin/queue" @Html.Raw(Active("/admin/queue"))>Queue</a>
-      }
-    </nav>
-    <div class="who">
-      <a href="/account">@User.Identity!.Name</a>
-      <form method="post" action="/auth/logout"><button class="link" type="submit">Sign out</button></form>
+@if (signedIn)
+{
+  <div class="shell">
+    <header class="topbar">
+      <a class="brand" href="/repos"><partial name="_Mark" />RepoCuck</a>
+      <details>
+        <summary>@Ui.Icon("menu") Menu</summary>
+        <div class="menu-panel"><partial name="_Nav" /></div>
+      </details>
+    </header>
+    <aside class="rail" aria-label="Sidebar">
+      <a class="brand" href="/repos"><partial name="_Mark" />RepoCuck</a>
+      <partial name="_Nav" />
+    </aside>
+    <div>
+      <main id="main" class="page">
+        @if (TempData["Flash"] is string flash) { <div class="flash" role="status">@flash</div> }
+        @if (TempData["Error"] is string err) { <div class="notice error" role="alert">@Ui.Icon("alert")<p>@err</p></div> }
+        @RenderBody()
+      </main>
     </div>
-  }
-</header>
-<main id="main" class="container">
-  @if (TempData["Flash"] is string flash) { <div class="flash" role="status" aria-live="polite">@flash</div> }
-  @if (TempData["Error"] is string err) { <div class="flash error" role="alert">@err</div> }
-  @RenderBody()
-</main>
+  </div>
+}
+else
+{
+  <div class="public">
+    <div class="top"><a class="brand" href="/"><partial name="_Mark" />RepoCuck</a><a class="btn secondary right" href="/login">Sign in</a></div>
+    <main id="main">@RenderBody()</main>
+  </div>
+}
 <script src="/js/site.js" nonce="@nonce"></script>
 </body>
 </html>

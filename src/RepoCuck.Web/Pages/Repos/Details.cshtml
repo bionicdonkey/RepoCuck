@@ -75,78 +75,171 @@
     public Task<IActionResult> OnPostRearbitrateAsync(Guid id, CancellationToken ct) => Run(id, async uid => { EnsureAdmin(); return $"Re-arbitrated {await Admin.RearbitrateAsync(id, uid, ct)} package(s)."; });
     private void EnsureAdmin() { if (!User.IsAdmin()) throw new ServiceException("forbidden", "Admin role required.", 403); }
 }
-@{ ViewData["Title"] = Repo.FullName; var admin = User.IsAdmin(); }
-<div class="row"><h1 class="grow">@Repo.FullName <span class="badge @Repo.State">@Repo.State</span></h1><a href="@Repo.HtmlUrl" rel="noopener noreferrer">GitHub ↗</a></div>
-<p>@Repo.Description</p>
-@if (!string.IsNullOrEmpty(Repo.StateReason)) { <div class="flash error">Reason: @Repo.StateReason</div> }
-@if (Repo.State == "proposed") { <div class="flash">This repository is awaiting approval. Packages are inspected but not published.</div> }
-<div class="grid2">
-  <div class="card"><strong>Architectures</strong><br>@(Repo.Architectures.Length == 0 ? "—" : string.Join(", ", Repo.Architectures))</div>
-  <div class="card"><strong>Prereleases</strong><br>@(Repo.IncludePrereleases ? "published to testing" : "ignored") · holdback @Repo.HoldbackHours h</div>
-  <div class="card"><strong>Requested by</strong><br>@(ProposedBy ?? "—") · license @(Repo.LicenseSpdx ?? "unknown")</div>
-  <div class="card"><strong>Last sync</strong><br>@(Repo.LastSyncedAt?.ToString("u") ?? "never") @Repo.LastSyncStatus @if (Repo.ConsecutiveFailures >= 5) { <span class="badge failed">stale</span> }</div>
+@{ ViewData["Title"] = Repo.FullName; var admin = User.IsAdmin(); var canRequest = Repo.State is "active" or "paused"; var missing = Allow.Except(Repo.Architectures).ToList(); }
+<div class="page-head">
+  <div class="titles">
+    <h1><span class="muted">@Repo.Owner/</span>@Repo.Name</h1>
+    <div class="row">
+      @Ui.Pill(Repo.State)
+      @if (Repo.ConsecutiveFailures >= 5) { @Ui.Pill("stale") }
+      @if (Repo.IsArchived) { <span class="pill pill-quiet">@Ui.Icon("archive")Archived on GitHub</span> }
+    </div>
+    @if (!string.IsNullOrWhiteSpace(Repo.Description)) { <p class="lede">@Repo.Description</p> }
+  </div>
+  <div class="actions"><a class="btn secondary" href="@Repo.HtmlUrl" rel="noopener noreferrer">View on GitHub @Ui.Icon("external")</a></div>
 </div>
 
-@if (Repo.State is "active" or "paused")
+@if (!string.IsNullOrEmpty(Repo.StateReason)) { <div class="notice error">@Ui.Icon("info")<p><strong>@(Repo.State == "blocked" ? "Blocked" : Repo.State == "rejected" ? "Not approved" : "Note"):</strong> @Repo.StateReason</p></div> }
+@if (Repo.State == "proposed") { <div class="notice warn">@Ui.Icon("hourglass")<p><strong>Waiting for an administrator.</strong> The latest releases have been inspected so the reviewer can see what this project publishes, but nothing is published to apt until it is approved.</p></div> }
+
+<dl class="facts">
+  <div><dt>Architectures</dt><dd>@Ui.Arches(Repo.Architectures)</dd></div>
+  <div><dt>Prereleases</dt><dd>@(Repo.IncludePrereleases ? "Published to the testing suite" : "Ignored")</dd></div>
+  <div><dt>New releases appear</dt><dd>@(Repo.HoldbackHours == 0 ? "Straight away" : $"After {Repo.HoldbackHours} h holdback")</dd></div>
+  <div><dt>Requested by</dt><dd>@(ProposedBy ?? "an administrator")<small>@Ui.Ago(Repo.CreatedAt)</small></dd></div>
+  <div><dt>Licence</dt><dd>@(Repo.LicenseSpdx ?? "Not declared")</dd></div>
+  <div><dt>Last sync</dt><dd>@Ui.Ago(Repo.LastSyncedAt)<small>@(Repo.LastSyncStatus is null ? "" : Ui.Cap(Repo.LastSyncStatus))@(Repo.State == "active" ? (Repo.LastSyncStatus is null ? "Next sync " : ", next sync ") + Ui.UntilText(Repo.NextSyncAt) : "")</small></dd></div>
+</dl>
+
+<nav class="anchors" aria-label="On this page">
+  <a href="#packages">Packages (@Packages.Count)</a>
+  @if (ProblemAssets.Count > 0) { <a href="#assets">Skipped files (@ProblemAssets.Count)</a> }
+  <a href="#syncs">Syncs</a>
+  <a href="#history">Requests</a>
+  @if (canRequest) { <a href="#more-archs">Ask for an architecture</a> }
+  @if (admin) { <a href="#manage">Manage</a> }
+</nav>
+
+<section class="section" id="packages" aria-labelledby="h-packages">
+  <div class="section-head"><h2 id="h-packages">Packages</h2><span class="muted">What this project contributes to the apt repository.</span></div>
+  @if (Packages.Count == 0)
+  {
+    <div class="empty">@Ui.Icon("box")<h3>No packages yet</h3><p>Nothing has been ingested from this repository's releases. Check the sync results below.</p></div>
+  }
+  else
+  {
+    <div class="tablewrap"><table>
+      <thead><tr><th>Package</th><th>Version</th><th>Arch</th><th>Channel</th><th>Status</th><th>In the apt index</th></tr></thead>
+      <tbody>
+      @foreach (var p in Packages)
+      {
+        <tr>
+          <td><strong>@p.Package</strong></td><td><span class="ver">@p.Version</span></td><td>@p.Architecture</td><td>@Ui.Cap(p.Channel)</td>
+          <td>@Ui.Pill(p.State)@if (p.Reason is not null) { <small class="reason">@Ui.Cap(p.Reason)</small> }</td>
+          <td>@if (p.State == "quarantined") { <span class="muted">Held for review</span> } else if (Repo.State is "proposed" or "rejected" or "blocked") { <span class="muted">Not published</span> } else if (p.Winner) { <span>Yes</span> } else { <span class="muted">No: another repository's file is used</span> }@if (!string.IsNullOrEmpty(p.Others)) { <small class="muted"> Also offered by @p.Others</small> }</td>
+        </tr>
+      }
+      </tbody>
+    </table></div>
+  }
+</section>
+
+@if (ProblemAssets.Count > 0)
 {
-  <h2>Request another architecture</h2>
-  <form method="post" asp-page-handler="RequestArch" class="stack">
-    <fieldset><legend>Architectures to add</legend>
-      @foreach (var a in Allow.Except(Repo.Architectures)) { <label class="inline"><input type="checkbox" name="Archs" value="@a" /> @a</label> }
-      @if (!Allow.Except(Repo.Architectures).Any()) { <span class="muted">All allowed architectures are already enabled.</span> }
-    </fieldset>
-    <label>Note (optional) <input asp-for="Note" maxlength="1000" /></label>
-    <button type="submit" class="secondary">Submit request</button>
-  </form>
+  <section class="section" id="assets" aria-labelledby="h-assets">
+    <div class="section-head"><h2 id="h-assets">Skipped and failed files</h2><span class="muted">Release files that were not turned into packages, and why.</span></div>
+    <div class="tablewrap"><table>
+      <thead><tr><th>File</th><th>Result</th><th>Reason</th></tr></thead>
+      <tbody>
+      @foreach (var a in ProblemAssets) { <tr><td class="ver">@a.Name</td><td>@Ui.Pill(a.State)</td><td>@Ui.Cap(a.ExcludedReason ?? a.FailureReason ?? "")</td></tr> }
+      </tbody>
+    </table></div>
+  </section>
+}
+
+<section class="section" id="syncs" aria-labelledby="h-syncs">
+  <div class="section-head"><h2 id="h-syncs">Recent syncs</h2></div>
+  @if (Runs.Count == 0) { <p class="muted">No sync has run yet.</p> }
+  else
+  {
+    <div class="tablewrap"><table>
+      <thead><tr><th>Started</th><th>Trigger</th><th>Result</th><th class="num">Ingested</th><th class="num">Skipped</th><th class="num">Failed</th><th class="num">Conflicts</th></tr></thead>
+      <tbody>
+      @foreach (var s in Runs)
+      {
+        <tr><td class="nowrap">@Ui.Ago(s.StartedAt)</td><td>@Ui.Cap(s.Trigger)</td><td>@Ui.Pill(s.Status)@if (s.ErrorCategory is not null) { <span class="muted"> @Ui.Cap(s.ErrorCategory)</span> }</td>
+            <td class="num">@s.AssetsIngested</td><td class="num">@s.AssetsExcluded</td><td class="num">@s.AssetsFailed</td><td class="num">@s.ConflictsFound</td></tr>
+      }
+      </tbody>
+    </table></div>
+  }
+</section>
+
+<section class="section" id="history" aria-labelledby="h-history">
+  <div class="section-head"><h2 id="h-history">Requests for this repository</h2></div>
+  @if (History.Count == 0) { <p class="muted">No requests recorded.</p> }
+  else
+  {
+    <div class="tablewrap"><table>
+      <thead><tr><th>Asked</th><th>By</th><th>Request</th><th>Architectures</th><th>Status</th><th>Decision</th></tr></thead>
+      <tbody>
+      @foreach (var h in History)
+      {
+        <tr><td class="nowrap">@Ui.Ago(h.CreatedAt)</td><td>@h.RequestedBy</td><td>@(h.Kind == "add_repo" ? "Add repository" : "Add architectures")</td><td>@Ui.Arches(h.Architectures)</td><td>@Ui.Pill(h.Status)</td><td>@h.DecisionNote</td></tr>
+      }
+      </tbody>
+    </table></div>
+  }
+</section>
+
+@if (canRequest)
+{
+  <section class="section" id="more-archs" aria-labelledby="h-arch">
+    <div class="section-head"><h2 id="h-arch">Request another architecture</h2></div>
+    @if (missing.Count == 0) { <p class="muted">Every architecture this server supports is already enabled for this repository.</p> }
+    else
+    {
+      <form method="post" asp-page-handler="RequestArch" class="stack">
+        <fieldset>
+          <legend>Architectures to add</legend>
+          <div class="chips">@foreach (var a in missing) { <label class="chip"><input type="checkbox" name="Archs" value="@a" /><span>@a</span></label> }</div>
+        </fieldset>
+        <label>Why do you need it? <small>Optional.</small><input asp-for="Note" maxlength="1000" /></label>
+        <div><button type="submit">Submit request</button></div>
+      </form>
+    }
+  </section>
 }
 
 @if (admin)
 {
-  <h2>Administration</h2>
-  <form method="post" asp-page-handler="Save" class="stack card">
-    <fieldset><legend>Architectures</legend>
-      @foreach (var a in Allow.Union(Repo.Architectures)) { <label class="inline"><input type="checkbox" name="Archs" value="@a" checked="@Archs.Contains(a)" /> @a</label> }
-    </fieldset>
-    <label class="inline"><input type="checkbox" asp-for="IncludePrereleases" /> Publish prereleases to the testing suite</label>
-    <label>Release holdback (hours) <input asp-for="HoldbackHours" type="number" min="0" max="720" /></label>
-    <label>Source priority <input asp-for="SourcePriority" type="number" /></label>
-    <label>Asset include glob <input asp-for="AssetIncludeGlob" /></label>
-    <label>Asset exclude glob <input asp-for="AssetExcludeGlob" /></label>
-    <label>Notes <textarea asp-for="Notes" rows="2"></textarea></label>
-    <button type="submit">Save</button>
-  </form>
-  <div class="row">
-    <form method="post" asp-page-handler="Sync"><button class="secondary" type="submit">Sync now</button></form>
-    <form method="post" asp-page-handler="Rearbitrate"><button class="secondary" type="submit">Re-arbitrate packages</button></form>
-    @foreach (var act in new[] { ("pause", "active"), ("resume", "paused"), ("remove", ""), ("block", ""), ("unblock", "blocked"), ("reinstate", "removed"), ("activate", "proposed"), ("activate", "rejected") })
-    {
-      if (act.Item2 == "" || act.Item2 == Repo.State)
-      { <form method="post" asp-page-handler="State" asp-route-action="@act.Item1"><input name="Reason" placeholder="reason (optional)" aria-label="Reason" class="w14" />
-          <button class="@(act.Item1 is "block" or "remove" ? "danger" : "secondary")" type="submit">@act.Item1</button></form> }
-    }
-  </div>
+  <details class="manage" id="manage">
+    <summary>@Ui.Icon("sliders")Manage this repository</summary>
+    <div class="body">
+      <form method="post" asp-page-handler="Save" class="stack">
+        <fieldset>
+          <legend>Architectures</legend>
+          <div class="chips">@foreach (var a in Allow.Union(Repo.Architectures)) { <label class="chip"><input type="checkbox" name="Archs" value="@a" checked="@Archs.Contains(a)" /><span>@a</span></label> }</div>
+        </fieldset>
+        <label class="inline"><input type="checkbox" asp-for="IncludePrereleases" /> Publish prereleases to the testing suite</label>
+        <label>Hold new releases back for (hours) <small>0 publishes straight away. A holdback gives you time to notice a bad upstream release.</small><input asp-for="HoldbackHours" type="number" min="0" max="720" /></label>
+        <label>Source priority <small>When two repositories ship the same package version, the higher priority wins after "Re-arbitrate".</small><input asp-for="SourcePriority" type="number" /></label>
+        <label>Files to include <small>Comma-separated patterns.</small><input asp-for="AssetIncludeGlob" /></label>
+        <label>Files to exclude<input asp-for="AssetExcludeGlob" /></label>
+        <label>Notes for administrators<textarea asp-for="Notes" rows="2"></textarea></label>
+        <div><button type="submit">Save changes</button></div>
+      </form>
+      <div class="row">
+        <form method="post" asp-page-handler="Sync"><button class="secondary" type="submit">Sync now</button></form>
+        <form method="post" asp-page-handler="Rearbitrate"><button class="secondary" type="submit">Re-arbitrate packages</button></form>
+      </div>
+      <div class="panel danger-zone">
+        <h3>State</h3>
+        <p class="muted">Pausing keeps published packages but stops syncing. Removing keeps them for the grace period. Blocking removes them from the next index.</p>
+        <div class="row">
+        @foreach (var act in new[] { ("pause", "active"), ("resume", "paused"), ("remove", ""), ("block", ""), ("unblock", "blocked"), ("reinstate", "removed"), ("activate", "proposed"), ("activate", "rejected") })
+        {
+          if (act.Item2 == "" || act.Item2 == Repo.State)
+          {
+            <form method="post" asp-page-handler="State" asp-route-action="@act.Item1" class="row">
+              <label class="sr-only" for="reason-@act.Item1">Reason for @act.Item1</label>
+              <input id="reason-@act.Item1" name="Reason" placeholder="Reason (optional)" class="w14" />
+              <button class="@(act.Item1 is "block" or "remove" ? "danger" : "secondary")" type="submit">@Ui.Cap(act.Item1)</button>
+            </form>
+          }
+        }
+        </div>
+      </div>
+    </div>
+  </details>
 }
-
-<h2>Packages</h2>
-@if (Packages.Count == 0) { <p class="muted">No packages ingested yet.</p> } else {
-<table><thead><tr><th>Package</th><th>Version</th><th>Arch</th><th>Channel</th><th>State</th><th>Source</th><th>Also offered by</th></tr></thead><tbody>
-@foreach (var p in Packages) {
-  <tr><td>@p.Package</td><td>@p.Version</td><td>@p.Architecture</td><td>@p.Channel</td>
-      <td><span class="badge @p.State">@p.State</span> @p.Reason</td><td>@(p.Winner ? "published source" : "alternate")</td><td>@p.Others</td></tr>
-}</tbody></table>}
-
-@if (ProblemAssets.Count > 0) {
-<h2>Skipped and failed assets</h2>
-<table><thead><tr><th>Asset</th><th>State</th><th>Reason</th></tr></thead><tbody>
-@foreach (var a in ProblemAssets) { <tr><td>@a.Name</td><td><span class="badge @a.State">@a.State</span></td><td>@(a.ExcludedReason ?? a.FailureReason)</td></tr> }
-</tbody></table>}
-
-<h2>Recent syncs</h2>
-<table><thead><tr><th>Started</th><th>Trigger</th><th>Status</th><th>Ingested</th><th>Skipped</th><th>Failed</th><th>Conflicts</th></tr></thead><tbody>
-@foreach (var s in Runs) { <tr><td>@s.StartedAt.ToString("u")</td><td>@s.Trigger</td><td><span class="badge @s.Status">@s.Status</span> @s.ErrorCategory</td><td>@s.AssetsIngested</td><td>@s.AssetsExcluded</td><td>@s.AssetsFailed</td><td>@s.ConflictsFound</td></tr> }
-</tbody></table>
-
-<h2>Request history</h2>
-<table><thead><tr><th>When</th><th>Who</th><th>Kind</th><th>Architectures</th><th>Status</th><th>Decision</th></tr></thead><tbody>
-@foreach (var h in History) { <tr><td>@h.CreatedAt.ToString("u")</td><td>@h.RequestedBy</td><td>@h.Kind</td><td>@string.Join(", ", h.Architectures)</td><td><span class="badge @h.Status">@h.Status</span></td><td>@h.DecisionNote</td></tr> }
-</tbody></table>

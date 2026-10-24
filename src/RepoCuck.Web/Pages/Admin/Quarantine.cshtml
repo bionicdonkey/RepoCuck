@@ -25,9 +25,21 @@
     }
 }
 @{ ViewData["Title"] = "Quarantine"; }
-<h1>Quarantined packages</h1>
-<p class="muted">These were flagged by package policy and are not published until released.</p>
-@if (Rows.Count == 0) { <p>Nothing is quarantined.</p> } else {
-<table><thead><tr><th>Package</th><th>Version</th><th>Arch</th><th>Reason</th><th></th></tr></thead><tbody>
-@foreach (var r in Rows) { <tr><td>@r.Package</td><td>@r.Version</td><td>@r.Architecture</td><td>@r.Reason</td><td><form method="post" asp-page-handler="Release" asp-route-id="@r.Id"><button class="secondary" type="submit">Release</button></form></td></tr> }
-</tbody></table>}
+<div class="page-head"><div class="titles"><h1>Quarantine</h1><p class="lede">Packages held back by policy: a protected distribution name, or an epoch that could outrank the distribution's own. They stay out of the apt repository until you release them.</p></div></div>
+@if (Rows.Count == 0)
+{
+  <div class="empty">@Ui.Icon("shield")<h3>Nothing is quarantined</h3><p>Packages that trip a policy check will wait here for your decision.</p></div>
+}
+else
+{
+  <div class="tablewrap"><table>
+    <thead><tr><th>Package</th><th>Version</th><th>Arch</th><th>Why it was held</th><th><span class="sr-only">Actions</span></th></tr></thead>
+    <tbody>
+    @foreach (var r in Rows)
+    {
+      <tr><td><strong>@r.Package</strong></td><td><span class="ver">@r.Version</span></td><td>@r.Architecture</td><td><span class="pill pill-pending">@Ui.Icon("shield")@Ui.Cap(r.Reason ?? "policy")</span></td>
+          <td><form method="post" asp-page-handler="Release" asp-route-id="@r.Id"><button class="secondary sm" type="submit">Release for publication</button></form></td></tr>
+    }
+    </tbody>
+  </table></div>
+}

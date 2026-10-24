@@ -82,6 +82,8 @@ public class UiTests(PostgresFixture pg)
         foreach (Match m in Regex.Matches(html, "<input(?![^>]*type=\"(?:hidden|checkbox|submit|radio))[^>]*>"))
         {
             if (m.Value.Contains("aria-label=")) continue;
+            var id = Regex.Match(m.Value, "\\bid=\"([^\"]+)\"");
+            if (id.Success && Regex.IsMatch(html, $"<label[^>]*\\bfor=\"{Regex.Escape(id.Groups[1].Value)}\"")) continue;   // explicit <label for>
             var before = html[..m.Index];
             var open = before.LastIndexOf("<label", StringComparison.Ordinal); var close = before.LastIndexOf("</label>", StringComparison.Ordinal);
             Assert.True(open > close, $"{path}: input without label: {m.Value}");

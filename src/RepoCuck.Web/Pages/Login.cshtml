@@ -39,23 +39,25 @@
         return LocalRedirect(Url.IsLocalUrl(ReturnUrl) ? ReturnUrl! : "/repos");
     }
 }
-@{ ViewData["Title"] = "Sign in"; }
-<h1>Sign in</h1>
-@if (NeedSetup) { <div class="flash">First run: <a href="/setup">create the first administrator</a>.</div> }
-@if (Error is not null) { <div class="flash error" role="alert">@Error</div> }
-@if (Request.Query["error"].ToString() is { Length: > 0 } qe) { <div class="flash error" role="alert">@qe</div> }
-<form method="post" class="stack">
+@{ Layout = "_AuthLayout"; ViewData["Title"] = "Sign in"; }
+<div class="stack">
+  <h1>Sign in</h1>
+  @if (NeedSetup) { <div class="notice warn">@Ui.Icon("info")<p>First run: <a href="/setup">create the first administrator</a> with the setup token from the server's console.</p></div> }
+  @if (Error is not null) { <div class="notice error" role="alert">@Ui.Icon("alert")<p>@Error</p></div> }
+  @if (Request.Query["error"].ToString() is { Length: > 0 } qe) { <div class="notice error" role="alert">@Ui.Icon("alert")<p>@qe</p></div> }
+</div>
+<form method="post" class="form">
   <input type="hidden" asp-for="ReturnUrl" />
-  <label>Username <input asp-for="Username" autocomplete="username" required autofocus /></label>
-  <label>Password <input asp-for="Password" type="password" autocomplete="current-password" required /></label>
+  <label>Username<input asp-for="Username" autocomplete="username" required autofocus /></label>
+  <label>Password<input asp-for="Password" type="password" autocomplete="current-password" required /></label>
   @if (NeedTotp || !string.IsNullOrEmpty(TotpCode))
-  { <label>Verification code or recovery code <input asp-for="TotpCode" autocomplete="one-time-code" inputmode="numeric" /></label> }
-  <button type="submit">Sign in</button>
+  { <label>Verification code <small>From your authenticator app, or one of your recovery codes.</small><input asp-for="TotpCode" autocomplete="one-time-code" inputmode="numeric" /></label> }
+  <div><button type="submit">Sign in</button></div>
 </form>
 @if (Providers.Count > 0)
 {
-  <h2>Or sign in with</h2>
-  <div class="row">
-  @foreach (var p in Providers) { <a class="btn outline" href="/auth/oidc/@p.Slug/signin?returnUrl=@Uri.EscapeDataString(ReturnUrl ?? "/repos")">@p.Name</a> }
+  <div class="divider">or</div>
+  <div class="sso">
+    @foreach (var p in Providers) { <a class="btn secondary" href="/auth/oidc/@p.Slug/signin?returnUrl=@Uri.EscapeDataString(ReturnUrl ?? "/repos")">@Ui.Icon("login")Continue with @p.Name</a> }
   </div>
 }

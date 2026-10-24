@@ -96,34 +96,63 @@ public static partial class AptEndpoints
     private static async Task<IResult> Landing(HttpContext ctx, IDbContextFactory<AppDbContext> dbf, ISigner signer, IOptions<AptOptions> apt,
         IOptions<SecurityOptions> sec, IOptions<AppOptions> app, CancellationToken ct)
     {
-        string baseUrl;
-        if (!string.IsNullOrEmpty(apt.Value.PublicHost)) baseUrl = $"{sec.Value.PublicScheme}://{apt.Value.PublicHost}";
-        else if (!string.IsNullOrEmpty(app.Value.BaseUrl)) baseUrl = app.Value.BaseUrl.TrimEnd('/');
-        else baseUrl = $"{ctx.Request.Scheme}://{ctx.Request.Host}";
         var prefix = "/" + apt.Value.PathPrefix.Trim('/');
+        var url = RepoCuck.Web.Components.InstallStripViewComponent.BaseUrl(ctx, apt.Value, sec.Value, app.Value);
         await using var db = await dbf.CreateDbContextAsync(ct);
         var suites = await db.AptSuites.AsNoTracking().Where(s => s.IsEnabled).Select(s => s.Name).ToListAsync(ct);
-        var pkgs = await (from v in db.PackageVariants.AsNoTracking()
-                          join p in db.Packages on v.PackageId equals p.Id
-                          where v.State == VariantState.Active && v.PublishedAt != null
-                          orderby p.Name
-                          select new { p.Name, v.Version, v.Architecture, v.Description }).Take(500).ToListAsync(ct);
+        var pkgQuery = from v in db.PackageVariants.AsNoTracking()
+                       join p in db.Packages on v.PackageId equals p.Id
+                       where v.State == VariantState.Active && v.PublishedAt != null
+                       orderby p.Name
+                       select new { p.Name, v.Version, v.Architecture, v.Description };
+        var pkgs = await pkgQuery.Take(1000).ToListAsync(ct);
         string fpr = ""; DateTimeOffset? exp = null;
         try { await signer.EnsureReadyAsync(ct); fpr = signer.Fingerprint; exp = await signer.GetKeyExpiryAsync(ct); } catch { /* key not ready */ }
-        var archs = await db.Repositories.AsNoTracking().Where(r => r.State == RepoState.Active || r.State == RepoState.Paused).Select(r => r.Architectures).ToListAsync(ct);
-        var archList = string.Join(",", archs.SelectMany(a => a).Distinct().Order());
+        var archs = (await db.Repositories.AsNoTracking().Where(r => r.State == RepoState.Active || r.State == RepoState.Paused).Select(r => r.Architectures).ToListAsync(ct))
+            .SelectMany(a => a).Distinct().Order().ToArray();
         Func<string?, string> E = s => System.Net.WebUtility.HtmlEncode(s) ?? "";
+        var nonce = ctx.Nonce();
+        var opts = (archs.Length > 0 ? "arch=" + string.Join(',', archs) + " " : "") + "signed-by=/etc/apt/keyrings/repocuck.gpg";
+        var keyCmd = $"sudo install -d -m 0755 /etc/apt/keyrings\ncurl -fsSL {url}/repocuck.gpg | sudo tee /etc/apt/keyrings/repocuck.gpg >/dev/null";
+        var srcCmd = $"echo \"deb [{opts}] {url} stable main\" | sudo tee /etc/apt/sources.list.d/repocuck.list";
+        var deb822 = $"Types: deb\nURIs: {url}\nSuites: stable\nComponents: main\n" + (archs.Length > 0 ? $"Architectures: {string.Join(' ', archs)}\n" : "") + "Signed-By: /etc/apt/keyrings/repocuck.gpg";
+        var pin = "Package: *\nPin: release o=RepoCuck\nPin-Priority: 400";
+        var updCmd = "sudo apt-get update\nsudo apt-get install <package>";
+        var fprSpaced = string.Join(' ', Enumerable.Range(0, (fpr.Length + 3) / 4).Select(i => fpr.Substring(i * 4, Math.Min(4, fpr.Length - i * 4))));
+        string Block(string id, string text) =>
+            $"<div class=\"codeblock\"><pre id=\"{id}\" data-copy-text=\"{E(text)}\"><code>{E(text)}</code></pre>" +
+            $"<button type=\"button\" class=\"copy secondary sm\" data-copy-target=\"#{id}\" hidden><svg class=\"i\" aria-hidden=\"true\"><use href=\"#i-copy\"/></svg><span class=\"label\">Copy</span></button></div>";
+
         var sb = new StringBuilder();
-        sb.Append($"<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>RepoCuck APT repository</title><link rel=\"stylesheet\" href=\"/css/site.css\"></head><body><main class=\"container\">");
-        sb.Append("<h1>RepoCuck APT repository</h1><p>Signed APT repository of curated GitHub release packages.</p>");
-        sb.Append($"<h2>Add the repository</h2><pre>sudo install -d -m 0755 /etc/apt/keyrings\ncurl -fsSL {E(baseUrl)}{E(prefix)}/repocuck.gpg \\\n  | sudo tee /etc/apt/keyrings/repocuck.gpg &gt;/dev/null\necho \"deb [{(archList.Length > 0 ? "arch=" + E(archList) + " " : "")}signed-by=/etc/apt/keyrings/repocuck.gpg] \\\n{E(baseUrl)}{E(prefix)} stable main\" \\\n  | sudo tee /etc/apt/sources.list.d/repocuck.list\nsudo apt-get update</pre>");
-        sb.Append("<h2>Recommended pin</h2><p>Keeps distribution packages preferred over same-named RepoCuck packages:</p><pre>sudo tee /etc/apt/preferences.d/repocuck &lt;&lt;'EOF'\nPackage: *\nPin: release o=RepoCuck\nPin-Priority: 400\nEOF</pre>");
-        if (suites.Contains("testing")) sb.Append("<p>Prerelease builds are available as an opt-in: use <code>testing main</code> instead of <code>stable main</code>.</p>");
-        sb.Append("<h2>Signing key</h2>");
-        sb.Append($"<p>Fingerprint: <code>{E(fpr)}</code>{(exp is null ? "" : $" (expires {exp:yyyy-MM-dd})")}<br><a href=\"{E(prefix)}/repocuck.gpg\">repocuck.gpg</a> (binary) · <a href=\"{E(prefix)}/repocuck.asc\">repocuck.asc</a> (armored)</p>");
-        sb.Append("<h2>Packages</h2><table><thead><tr><th>Package</th><th>Version</th><th>Arch</th><th>Description</th></tr></thead><tbody>");
-        foreach (var p in pkgs) sb.Append($"<tr><td>{E(p.Name)}</td><td>{E(p.Version)}</td><td>{E(p.Architecture)}</td><td>{E(p.Description.Split('\n')[0])}</td></tr>");
-        sb.Append("</tbody></table></main></body></html>");
+        sb.Append("<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><meta name=\"color-scheme\" content=\"light dark\">");
+        sb.Append("<title>Install packages from this mirror - RepoCuck</title><link rel=\"preload\" href=\"/fonts/bricolage-grotesque.woff2\" as=\"font\" type=\"font/woff2\" crossorigin><link rel=\"icon\" href=\"/favicon.svg\" type=\"image/svg+xml\"><link rel=\"stylesheet\" href=\"/css/site.css\"></head><body>");
+        sb.Append("<svg width=\"0\" height=\"0\" class=\"sr-only\" aria-hidden=\"true\" focusable=\"false\"><defs><symbol id=\"i-copy\" viewBox=\"0 0 24 24\"><rect x=\"8\" y=\"8\" width=\"12\" height=\"12\" rx=\"2\"/><path d=\"M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2\"/></symbol><symbol id=\"i-search\" viewBox=\"0 0 24 24\"><circle cx=\"11\" cy=\"11\" r=\"6.5\"/><path d=\"m16 16 4 4\"/></symbol></defs></svg>");
+        sb.Append("<div class=\"public\"><div class=\"top\"><a class=\"brand\" href=\"/\"><svg viewBox=\"0 0 32 32\" aria-hidden=\"true\"><rect class=\"mark-body\" width=\"32\" height=\"32\" rx=\"8\"/><path class=\"mark-line mark-hot\" d=\"M8 10.5h8\"/><path class=\"mark-line\" d=\"M8 16h16M8 21.5h11\"/></svg>RepoCuck</a>");
+        sb.Append(ctx.User.Identity?.IsAuthenticated == true ? "<a class=\"btn secondary right\" href=\"/repos\">Open the dashboard</a>" : "<a class=\"btn secondary right\" href=\"/login\">Sign in</a>");
+        sb.Append("</div><main id=\"main\"><div class=\"page-head\"><div class=\"titles\"><h1>Install packages from this mirror</h1>");
+        sb.Append("<p class=\"lede\">A signed apt repository built from the release files of curated GitHub projects. Add it once; <code>apt</code> then installs and upgrades these packages like any other.</p></div></div>");
+        sb.Append("<ol class=\"steps\">");
+        sb.Append($"<li><h3>Trust the signing key</h3><p>Every index is signed. Save the key where apt can find it.</p>{Block("c-key", keyCmd)}");
+        if (fpr.Length > 0) sb.Append($"<p class=\"muted\">The key fingerprint is <code>{E(fprSpaced)}</code>{(exp is null ? "" : $", valid until {exp:d MMM yyyy}")}. Compare it with <code>gpg --show-keys /etc/apt/keyrings/repocuck.gpg</code>. Also available as <a href=\"{E(prefix)}/repocuck.asc\">armored text</a>.</p>");
+        sb.Append("</li>");
+        sb.Append($"<li><h3>Add the repository</h3>{Block("c-src", srcCmd)}<details><summary>Prefer the deb822 format?</summary><p>Save this as <code>/etc/apt/sources.list.d/repocuck.sources</code> instead:</p>{Block("c-822", deb822)}</details></li>");
+        sb.Append($"<li><h3>Prefer your distribution's own packages <span class=\"muted\">(recommended)</span></h3><p>This keeps a package here from silently replacing a distribution package of the same name. Packages the distribution doesn't have still install and upgrade. Save as <code>/etc/apt/preferences.d/repocuck</code>:</p>{Block("c-pin", pin)}</li>");
+        sb.Append($"<li><h3>Update and install</h3>{Block("c-upd", updCmd)}");
+        if (suites.Contains("testing")) sb.Append("<p class=\"muted\">Want prereleases too? Use <code>testing</code> instead of <code>stable</code> in the repository line.</p>");
+        if (!sec.Value.IsHttps) sb.Append("<p class=\"muted\">This server is on plain HTTP. Package metadata is still signed and verified by apt.</p>");
+        sb.Append("</li></ol>");
+        sb.Append("<section class=\"section\" aria-labelledby=\"h-pk\"><div class=\"section-head\"><h2 id=\"h-pk\">Available packages</h2>");
+        sb.Append($"<span class=\"muted\">{pkgs.Count}{(pkgs.Count == 1000 ? "+" : "")} published</span></div>");
+        if (pkgs.Count == 0) sb.Append("<div class=\"empty\"><h3>Nothing is published yet</h3><p>Packages appear here once an administrator approves a repository.</p></div>");
+        else
+        {
+            sb.Append("<div class=\"toolbar\"><div class=\"search\"><svg class=\"i\" aria-hidden=\"true\"><use href=\"#i-search\"/></svg><label class=\"sr-only\" for=\"pf\">Filter packages</label><input id=\"pf\" type=\"search\" placeholder=\"Filter packages\" data-filter=\"#pkgs tbody tr\" autocomplete=\"off\"></div></div>");
+            sb.Append("<div class=\"tablewrap\"><table id=\"pkgs\"><thead><tr><th>Package</th><th>Version</th><th>Arch</th><th>Description</th></tr></thead><tbody>");
+            foreach (var p in pkgs) sb.Append($"<tr><td><strong>{E(p.Name)}</strong></td><td><span class=\"ver\">{E(p.Version)}</span></td><td>{E(p.Architecture)}</td><td>{E(p.Description.Split('\n')[0])}</td></tr>");
+            sb.Append("</tbody></table></div>");
+        }
+        sb.Append("</section></main></div>");
+        sb.Append($"<script src=\"/js/site.js\" nonce=\"{nonce}\"></script></body></html>");
         ctx.Response.Headers.CacheControl = "no-cache";
         return Results.Content(sb.ToString(), "text/html; charset=utf-8");
     }

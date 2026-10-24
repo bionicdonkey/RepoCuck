@@ -1,0 +1,22 @@
+@model RepoCuck.Web.Components.InstallStripModel
+@{
+    var opts = (Model.Arches.Length > 0 ? $"arch={string.Join(',', Model.Arches)} " : "") + "signed-by=/etc/apt/keyrings/repocuck.gpg";
+}
+<section class="strip" aria-labelledby="strip-title">
+  <div class="strip-head">
+    <h2 id="strip-title">Add this mirror to a machine</h2>
+    @if (!string.IsNullOrEmpty(Model.Fingerprint)) { <span class="fp">Signing key <code>@Model.Fingerprint</code></span> }
+  </div>
+  <div class="cmdwrap">
+  <pre class="cmd" id="strip-cmd" data-copy-text="@Model.Commands"><code>sudo install -d -m 0755 /etc/apt/keyrings
+curl -fsSL @Model.BaseUrl/repocuck.gpg | sudo tee /etc/apt/keyrings/repocuck.gpg &gt;/dev/null
+echo "<span class="kw">deb</span> <span class="opt">[@opts]</span> @Model.BaseUrl <span class="suite">stable</span> main" | sudo tee /etc/apt/sources.list.d/repocuck.list
+sudo apt-get update</code></pre>
+  <button type="button" class="copy sm" data-copy-target="#strip-cmd" hidden>@Ui.Icon("copy")<span class="label">Copy</span></button>
+  </div>
+  <p class="fine">
+    @(Model.Packages == 1 ? "1 package" : $"{Model.Packages} packages") published, index refreshed @Ui.Ago(Model.IndexedAt).
+    <a href="/apt/">Step-by-step guide, pinning and troubleshooting</a>.
+    @if (Model.Plain) { <text> This server is on plain HTTP: package metadata is still signed, but sign-ins are not encrypted.</text> }
+  </p>
+</section>

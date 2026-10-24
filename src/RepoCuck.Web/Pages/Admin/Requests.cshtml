@@ -41,37 +41,71 @@
     });
     public Task<IActionResult> OnPostRejectAsync(Guid id, CancellationToken ct) => Run(async () => { await Svc.RejectAsync(id, User.RequireId(), Reason, ct); return "Rejected."; });
 }
-@{ ViewData["Title"] = "Pending requests"; }
-<h1>Pending requests</h1>
-@if (Groups.Count == 0) { <p class="muted">Nothing is waiting for approval.</p> }
+@{ ViewData["Title"] = "Approvals"; }
+<div class="page-head">
+  <div class="titles">
+    <h1>Approvals</h1>
+    <p class="lede">Review what each project publishes before it can reach your machines. Approved packages are installed as root, so look at the flagged ones first.</p>
+  </div>
+</div>
+@if (Groups.Count == 0)
+{
+  <div class="empty">@Ui.Icon("check-circle")<h3>Nothing is waiting for approval</h3><p>New requests from members show up here, with the packages found in the project's latest releases.</p></div>
+}
 @foreach (var g in Groups)
 {
-  <section class="card">
-    <h2 class="flush"><a href="/repos/@g.RepoId">@g.Name</a> <span class="badge @g.State">@g.State</span></h2>
-    <p class="muted">@g.Description · license @(g.License ?? "unknown") · @g.Assets asset(s) inspected, @g.Failed failed · currently @(g.Archs.Length == 0 ? "no" : string.Join(", ", g.Archs)) architectures</p>
-    @if (g.Findings.Count > 0) {
-      <details><summary>@g.Findings.Count package(s) found in quarantine inspection @if (g.Findings.Any(f => f.State == "quarantined")) { <span class="badge quarantined">@g.Findings.Count(f => f.State == "quarantined") flagged</span> }</summary>
-        <table><thead><tr><th>Package</th><th>Version</th><th>Arch</th><th>Flag</th></tr></thead><tbody>
-        @foreach (var f in g.Findings) { <tr><td>@f.Package</td><td>@f.Version</td><td>@f.Architecture</td><td>@f.Reason</td></tr> }
-        </tbody></table></details>
-    } else { <p class="muted">No packages inspected yet (sync may still be running).</p> }
+  var flagged = g.Findings.Count(f => f.State == "quarantined");
+  <section class="panel @(flagged > 0 ? "flagged" : "")" aria-labelledby="g-@g.RepoId">
+    <div class="section-head">
+      <h2 id="g-@g.RepoId"><a href="/repos/@g.RepoId">@g.Name</a></h2>
+      @Ui.Pill(g.State)
+      @if (flagged > 0) { <span class="pill pill-pending">@Ui.Icon("shield")@flagged flagged for review</span> }
+    </div>
+    @if (!string.IsNullOrWhiteSpace(g.Description)) { <p class="muted">@g.Description</p> }
+    <dl class="facts">
+      <div><dt>Licence</dt><dd>@(g.License ?? "Not declared")</dd></div>
+      <div><dt>Release files inspected</dt><dd>@g.Assets@if (g.Failed > 0) { <small>@g.Failed could not be read</small> }</dd></div>
+      <div><dt>Architectures requested so far</dt><dd>@Ui.Arches(g.Archs)</dd></div>
+    </dl>
+
+    <h3 class="section-sub">Packages found</h3>
+    @if (g.Findings.Count == 0) { <p class="muted">Nothing inspected yet. The first sync may still be running; reload in a minute.</p> }
+    else
+    {
+      <div class="tablewrap"><table>
+        <thead><tr><th>Package</th><th>Version</th><th>Arch</th><th>Review</th></tr></thead>
+        <tbody>
+        @foreach (var f in g.Findings)
+        {
+          <tr><td><strong>@f.Package</strong></td><td><span class="ver">@f.Version</span></td><td>@f.Architecture</td>
+              <td>@if (f.State == "quarantined") { <span class="pill pill-pending">@Ui.Icon("shield")@Ui.Cap(f.Reason ?? "flagged")</span> } else { <span class="muted">Looks fine</span> }</td></tr>
+        }
+        </tbody>
+      </table></div>
+    }
+
     @foreach (var r in g.Requests)
     {
-      <div class="card">
-        <strong>@r.RequestedBy</strong> asks to <em>@(r.Kind == "add_repo" ? "add this repository" : "add architectures")</em>: @string.Join(", ", r.Architectures)
-        @if (!string.IsNullOrEmpty(r.Note)) { <div class="muted">“@r.Note”</div> }
-        <div class="row">
-          <form method="post" asp-page-handler="Approve" asp-route-id="@r.Id" class="row">
-            <fieldset><legend>Final architectures</legend>
-              @foreach (var a in Allow) { <label class="inline"><input type="checkbox" name="Archs" value="@a" checked="@(r.Architectures.Contains(a) || g.Archs.Contains(a))" /> @a</label> }
+      <div class="card" role="group" aria-label="Request from @r.RequestedBy">
+        <p><strong>@r.RequestedBy</strong> asks to @(r.Kind == "add_repo" ? "add this repository" : "add architectures") <span class="muted">@Ui.Ago(r.CreatedAt)</span>
+          <br />Architectures requested: @Ui.Arches(r.Architectures)</p>
+        @if (!string.IsNullOrEmpty(r.Note)) { <p class="muted">“@r.Note”</p> }
+        <div class="decision">
+          <form method="post" asp-page-handler="Approve" asp-route-id="@r.Id" class="stack">
+            <fieldset>
+              <legend>Publish these architectures</legend>
+              <div class="chips">@foreach (var a in Allow) { <label class="chip"><input type="checkbox" name="Archs" value="@a" checked="@(r.Architectures.Contains(a) || g.Archs.Contains(a))" /><span>@a</span></label> }</div>
             </fieldset>
-            @if (r.Kind == "add_repo") { <label class="inline"><input type="checkbox" name="IncludePrereleases" value="true" /> prereleases</label>
-              <label class="inline">holdback h <input name="HoldbackHours" type="number" min="0" max="720" value="0" class="w5" /></label> }
-            <button type="submit">Approve</button>
+            @if (r.Kind == "add_repo")
+            {
+              <label class="inline"><input type="checkbox" name="IncludePrereleases" value="true" /> Publish prereleases to the testing suite</label>
+              <label>Hold new releases back for (hours)<input name="HoldbackHours" type="number" min="0" max="720" value="0" class="w5" /></label>
+            }
+            <div><button type="submit">@Ui.Icon("check")Approve</button></div>
           </form>
-          <form method="post" asp-page-handler="Reject" asp-route-id="@r.Id" class="row">
-            <input name="Reason" placeholder="Reason (required)" aria-label="Rejection reason" required maxlength="500" />
-            <button class="danger" type="submit">Reject</button>
+          <form method="post" asp-page-handler="Reject" asp-route-id="@r.Id" class="stack">
+            <label>Reason for declining <small>The requester sees this.</small><input name="Reason" required maxlength="500" /></label>
+            <div><button class="danger" type="submit">Decline</button></div>
           </form>
         </div>
       </div>

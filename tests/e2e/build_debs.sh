@@ -24,6 +24,10 @@ for v in 1.0.0 1.1.0; do
 done
 mk fooapp-data 1.0.0 all
 mk baddigest 1.0 amd64
+mk newtool 2.3.1 amd64
+mk newtool 2.3.1 arm64
+mk openssh-server 9.9 amd64   # protected distribution name: flagged for review
+mk rejectme 0.1 amd64
 mk libc6 99.0 amd64            # reserved name: must be quarantined
 mk epochpkg 1:2.0 amd64        # epoch: must be quarantined
 # a second repository ("fork") offering the same identity with different bytes

@@ -23,8 +23,17 @@
     }
 }
 @{ ViewData["Title"] = "Job queue"; }
-<div class="row"><h1 class="grow">Job queue</h1><form method="post" asp-page-handler="Rebuild"><button class="secondary" type="submit">Rebuild APT indices</button></form></div>
-<table><thead><tr><th>Kind</th><th>State</th><th>Attempts</th><th>Run after</th><th>Last error</th><th></th></tr></thead><tbody>
-@foreach (var j in Jobs) { <tr><td>@j.Kind</td><td><span class="badge @j.State">@j.State</span></td><td>@j.Attempts/@j.MaxAttempts</td><td>@j.RunAfter.ToString("u")</td><td>@j.LastError</td>
-  <td>@if (j.State is "dead" or "failed") { <form method="post" asp-page-handler="Retry" asp-route-id="@j.Id"><button class="secondary" type="submit">Retry</button></form> }</td></tr> }
-</tbody></table>
+<div class="page-head">
+  <div class="titles"><h1>Job queue</h1><p class="lede">Background work: syncing repositories, publishing indexes and housekeeping. Failed jobs retry automatically; dead ones need you.</p></div>
+  <div class="actions"><form method="post" asp-page-handler="Rebuild"><button class="secondary" type="submit">Rebuild APT indexes</button></form></div>
+</div>
+<div class="tablewrap"><table>
+  <thead><tr><th>Job</th><th>State</th><th class="num">Attempts</th><th>Runs</th><th>Last error</th><th><span class="sr-only">Actions</span></th></tr></thead>
+  <tbody>
+  @foreach (var j in Jobs)
+  {
+    <tr><td>@j.Kind</td><td>@Ui.Pill(j.State)</td><td class="num">@j.Attempts of @j.MaxAttempts</td><td class="nowrap">@Ui.Ago(j.RunAfter)</td><td>@j.LastError</td>
+        <td>@if (j.State is "dead" or "failed") { <form method="post" asp-page-handler="Retry" asp-route-id="@j.Id"><button class="secondary sm" type="submit">Retry</button></form> }</td></tr>
+  }
+  </tbody>
+</table></div>

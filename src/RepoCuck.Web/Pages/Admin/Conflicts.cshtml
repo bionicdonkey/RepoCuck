@@ -18,10 +18,22 @@
         }
     }
 }
-@{ ViewData["Title"] = "Package conflicts"; }
-<h1>Package identity conflicts</h1>
-<p class="muted">Different repositories offer different bytes for the same package, version and architecture. The first source wins; use a repository's source priority and "Re-arbitrate" to change that.</p>
-@if (Rows.Count == 0) { <p>No conflicts.</p> } else {
-<table><thead><tr><th>Package</th><th>Sources</th></tr></thead><tbody>
-@foreach (var r in Rows) { <tr><td>@r.Package @r.Version (@r.Architecture)</td><td>@foreach (var s in r.Sources) { <div><a href="/repos/@s.RepoId">@s.Repository</a> priority @s.Priority @(s.Winner ? "— published" : "") @(s.Identical ? "" : "(different bytes)")</div> }</td></tr> }
-</tbody></table>}
+@{ ViewData["Title"] = "Conflicts"; }
+<div class="page-head"><div class="titles"><h1>Conflicts</h1><p class="lede">Two repositories offer the same package version with different contents. The first one to arrive is published. Raise a repository's priority and re-arbitrate to switch.</p></div></div>
+@if (Rows.Count == 0)
+{
+  <div class="empty">@Ui.Icon("split")<h3>No conflicts</h3><p>Every package version has a single source, or all sources are byte-for-byte identical.</p></div>
+}
+else
+{
+  <div class="tablewrap"><table>
+    <thead><tr><th>Package</th><th>Sources</th></tr></thead>
+    <tbody>
+    @foreach (var r in Rows)
+    {
+      <tr><td><strong>@r.Package</strong> <span class="ver">@r.Version</span> <span class="muted">@r.Architecture</span></td>
+          <td>@foreach (var s in r.Sources) { <div class="row"><a href="/repos/@s.RepoId">@s.Repository</a> @if (s.Winner) { <span class="pill pill-active">@Ui.Icon("check-circle")Published</span> } <span class="muted">priority @s.Priority@(s.Identical ? "" : ", different contents")</span></div> }</td></tr>
+    }
+    </tbody>
+  </table></div>
+}
