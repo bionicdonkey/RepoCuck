@@ -24,7 +24,7 @@ public class RobustnessTests
                 default: for (var k = 0; k < 20; k++) data[rng.Next(Math.Min(120, data.Length))] ^= (byte)(1 << rng.Next(8)); break;   // header-focused flips
             }
             try { using var ms = new MemoryStream(data); DebInspector.Inspect(ms, 1 << 20); parsed++; }
-            catch (DebFormatException) { rejected++; }
+            catch (DebFormatException) { rejected++; }     // anything else (e.g. NullReferenceException) fails the test
         }
         Assert.True(rejected > 1000, "most mutations should be rejected cleanly");
         Assert.True(parsed + rejected == 4000);

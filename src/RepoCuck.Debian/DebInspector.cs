@@ -16,7 +16,20 @@ public static class DebInspector
     public const int MaxRatio = 200;
     public const int MaxTarEntries = 64;
 
+    /// <summary>
+    /// Parses the control metadata. Hostile or corrupt input only ever surfaces as <see cref="DebFormatException"/>: any other failure of
+    /// the underlying readers (tar, decompressors) is converted so a bad asset can never fail or poison a whole sync.
+    /// </summary>
     public static DebInfo Inspect(Stream deb, long maxAssetBytes)
+    {
+        try { return InspectCore(deb, maxAssetBytes); }
+        catch (Exception e) when (e is not DebFormatException and not OperationCanceledException and not OutOfMemoryException)
+        {
+            throw new DebFormatException("unparseable", $"Unreadable package: {e.GetType().Name}.");
+        }
+    }
+
+    private static DebInfo InspectCore(Stream deb, long maxAssetBytes)
     {
         var members = ArReader.ReadMembers(deb, maxAssetBytes + 1024 * 1024);
         var bin = members.FirstOrDefault(m => m.Name == "debian-binary")
@@ -51,7 +64,7 @@ public static class DebInspector
                 if (n != "control") continue;
                 if (entry.Length > MaxControlFile) throw new DebFormatException("control_too_large", "control file too large.");
                 using var ms = new MemoryStream();
-                entry.DataStream!.CopyTo(ms);
+                (entry.DataStream ?? throw new DebFormatException("bad_control_tar", "control entry has no data.")).CopyTo(ms);
                 controlBytes = ms.ToArray();
                 break;
             }
