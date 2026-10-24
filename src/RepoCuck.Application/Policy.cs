@@ -40,7 +40,7 @@ public sealed class PackagePolicy(PolicyOptions options, ISet<string>? extraRese
         {
             var v = c.Get(rel);
             if (v is null) continue;
-            foreach (var part in v.Split(','))
+            foreach (var part in v.Split([',', '|']))
             {
                 var name = part.Trim();
                 var cut = name.IndexOfAny([' ', '(', ':', '|']);

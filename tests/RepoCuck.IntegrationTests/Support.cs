@@ -129,6 +129,15 @@ public sealed class FakeGitHub : IGitHubClient
     }
 }
 
+public sealed class PeerFilter(string ip) : Microsoft.AspNetCore.Hosting.IStartupFilter
+{
+    public Action<Microsoft.AspNetCore.Builder.IApplicationBuilder> Configure(Action<Microsoft.AspNetCore.Builder.IApplicationBuilder> next) => app =>
+    {
+        Microsoft.AspNetCore.Builder.UseExtensions.Use(app, async (Microsoft.AspNetCore.Http.HttpContext ctx, Func<Task> n) => { ctx.Connection.RemoteIpAddress ??= IPAddress.Parse(ip); await n(); });
+        next(app);
+    };
+}
+
 public class AppFactory : WebApplicationFactory<Program>
 {
     public FakeGitHub GitHub { get; } = new();
@@ -138,10 +147,12 @@ public class AppFactory : WebApplicationFactory<Program>
     public string ConnectionString { get; set; } = "";
     public bool UseFakeClock { get; set; }
     public Action<IServiceCollection>? ExtraServices { get; set; }
+    public string? PeerAddress { get; set; }
 
     protected override void ConfigureWebHost(IWebHostBuilder b)
     {
         Environment.SetEnvironmentVariable("GNUPGHOME", null);
+        b.UseEnvironment("Production");
         var s = new Dictionary<string, string?>
         {
             ["ConnectionStrings:Postgres"] = ConnectionString,
@@ -165,6 +176,7 @@ public class AppFactory : WebApplicationFactory<Program>
             services.AddSingleton<IGitHubClient>(GitHub);
             if (UseFakeClock) { services.RemoveAll<IClock>(); services.AddSingleton<IClock>(Clock); }
             ExtraServices?.Invoke(services);
+            if (PeerAddress is not null) services.AddTransient<Microsoft.AspNetCore.Hosting.IStartupFilter>(_ => new PeerFilter(PeerAddress));
         });
     }
 

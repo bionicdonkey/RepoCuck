@@ -10,6 +10,7 @@
     <PackageReference Include="xunit.runner.visualstudio" />
     <ProjectReference Include="..\..\src\RepoCuck.Debian\RepoCuck.Debian.csproj" />
     <ProjectReference Include="..\..\src\RepoCuck.Application\RepoCuck.Application.csproj" />
+    <ProjectReference Include="..\..\src\RepoCuck.Infrastructure\RepoCuck.Infrastructure.csproj" />
   </ItemGroup>
   <ItemGroup><Using Include="Xunit" /></ItemGroup>
 </Project>
