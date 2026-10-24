@@ -294,3 +294,68 @@ public class CliTests(PostgresFixture pg)
         Assert.Equal(0, (await Run("--migrate")).Code);   // idempotent
     }
 }
+
+[Collection("pg")]
+public class SigningKeyImportTests(PostgresFixture pg)
+{
+    private static (string Fpr, string KeyFile, string PassFile, string Dir) MakeKey(string pass)
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "rc-key-" + Guid.NewGuid().ToString("N"));
+        var home = Path.Combine(dir, "home"); Directory.CreateDirectory(home);
+        if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(home, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        string Run(params string[] args)
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo("gpg") { RedirectStandardOutput = true, RedirectStandardError = true };
+            psi.Environment["GNUPGHOME"] = home;
+            foreach (var a in new[] { "--batch", "--no-tty", "--yes", "--pinentry-mode", "loopback", "--passphrase", pass }.Concat(args)) psi.ArgumentList.Add(a);
+            using var p = System.Diagnostics.Process.Start(psi)!;
+            var o = p.StandardOutput.ReadToEnd(); p.WaitForExit();
+            Assert.Equal(0, p.ExitCode);
+            return o;
+        }
+        Run("--quick-gen-key", "Imported Key <imported@example.com>", "ed25519", "sign", "5y");
+        var fpr = Run("--list-secret-keys", "--with-colons").Split('\n').First(l => l.StartsWith("fpr:")).Split(':')[9];
+        var keyFile = Path.Combine(dir, "signing.key");
+        File.WriteAllText(keyFile, Run("--armor", "--export-secret-keys", fpr));
+        var passFile = Path.Combine(dir, "pass"); File.WriteAllText(passFile, pass + "\n");
+        return (fpr, keyFile, passFile, dir);
+    }
+
+    [Fact]
+    public async Task Imported_passphrase_protected_key_signs_the_repository_and_the_fingerprint_pin_is_enforced()
+    {
+        var (fpr, keyFile, passFile, dir) = MakeKey("correct horse battery");
+        try
+        {
+            var (f, admin, _) = await Scenario.StartAsync(pg, x =>
+            {
+                x.Settings["REPOCUCK:ROLE"] = "web"; x.Settings["Apt:SigningKeyPath"] = keyFile; x.Settings["Apt:SigningKeyPassphraseFile"] = passFile; x.Settings["Apt:KeyFingerprint"] = fpr;
+            });
+            using var _ = f;
+            f.GitHub.AddRepo("acme/tool", 1);
+            f.GitHub.AddRelease(1, "v", false, ("a.deb", Scenario.Deb("tool", "1.0", "amd64")));
+            var (_, js) = await admin.Post("/admin/repositories", new { owner = "acme", name = "tool", architectures = new[] { "amd64" } });
+            await f.SyncAsync(js.GetProperty("id").GetGuid()); await f.PublishAsync();
+            Assert.Equal(fpr, (await admin.Get("/admin/signing")).Body.GetProperty("fingerprint").GetString());
+            var vdir = Path.Combine(dir, "verify"); Directory.CreateDirectory(vdir);
+            await File.WriteAllBytesAsync(Path.Combine(vdir, "k.gpg"), (await f.RawGet("/apt/repocuck.gpg")).Body);
+            await File.WriteAllBytesAsync(Path.Combine(vdir, "InRelease"), (await f.RawGet("/apt/dists/stable/InRelease")).Body);
+            var psi = new System.Diagnostics.ProcessStartInfo("gpgv") { RedirectStandardError = true, RedirectStandardOutput = true };
+            foreach (var a in new[] { "--status-fd", "1", "--keyring", Path.Combine(vdir, "k.gpg"), Path.Combine(vdir, "InRelease") }) psi.ArgumentList.Add(a);
+            using var p = System.Diagnostics.Process.Start(psi)!;
+            var status = p.StandardOutput.ReadToEnd(); p.WaitForExit();
+            Assert.Contains("VALIDSIG " + fpr, status);                                           // signed by exactly the imported key
+
+            // wrong pin -> refuse to start; wrong passphrase -> refuse to start
+            using var badPin = new AppFactory { ConnectionString = await pg.CreateDatabaseAsync() };
+            badPin.Settings["REPOCUCK:ROLE"] = "all"; badPin.Settings["Apt:SigningKeyPath"] = keyFile; badPin.Settings["Apt:SigningKeyPassphraseFile"] = passFile;
+            badPin.Settings["Apt:KeyFingerprint"] = new string('A', 40);
+            Assert.ThrowsAny<Exception>(() => badPin.CreateClient());
+            var wrongPass = Path.Combine(dir, "wrong"); File.WriteAllText(wrongPass, "nope");
+            using var badPass = new AppFactory { ConnectionString = await pg.CreateDatabaseAsync() };
+            badPass.Settings["REPOCUCK:ROLE"] = "all"; badPass.Settings["Apt:SigningKeyPath"] = keyFile; badPass.Settings["Apt:SigningKeyPassphraseFile"] = wrongPass;
+            Assert.ThrowsAny<Exception>(() => badPass.CreateClient());
+        }
+        finally { try { Directory.Delete(dir, true); } catch { /* ignore */ } }
+    }
+}

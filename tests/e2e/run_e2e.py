@@ -185,6 +185,23 @@ fooapp""")
     r = client("apt-get install -y -qq libc6 2>&1 | tail -1; apt-cache policy libc6 | grep -c 99.0 || true")
     check("0" in r.stdout.strip().splitlines()[-1], "quarantined libc6 99.0 not offered")
 
+    print("== client matrix (NFR-COMPAT-1)")
+    ours = "-o Dir::Etc::sourcelist=/etc/apt/sources.list.d/repocuck.list -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0"
+    script = f"""export DEBIAN_FRONTEND=noninteractive
+for i in 1 2 3; do apt-get update -qq >/dev/null && break; sleep 3; done
+apt-get install -y -qq --no-install-recommends curl ca-certificates gnupg >/dev/null
+install -d -m 0755 /etc/apt/keyrings
+curl -fsS http://app:8080/apt/repocuck.gpg -o /etc/apt/keyrings/repocuck.gpg
+echo 'deb [signed-by=/etc/apt/keyrings/repocuck.gpg] http://app:8080/apt stable main' > /etc/apt/sources.list.d/repocuck.list
+apt-get update {ours} 2>&1 | tee /tmp/upd >/dev/null; ! grep -E '^(W|E):' /tmp/upd
+apt-get install -y -qq fooapp >/dev/null && fooapp
+dpkg --add-architecture arm64 && apt-get update {ours} >/dev/null && cd /tmp && apt-get download fooapp:arm64 && ls fooapp_1.0.0_arm64.deb"""
+    # Debian 11 is archived: point the base image at archive.debian.org so its own packages can be installed (unrelated to RepoCuck)
+    bullseye = "sed -i 's|deb.debian.org|archive.debian.org|g;/-updates/d' /etc/apt/sources.list; echo 'Acquire::Check-Valid-Until \"false\";' > /etc/apt/apt.conf.d/99archive\n"
+    for image in ["debian:11", "debian:trixie", "ubuntu:22.04", "ubuntu:24.04"]:
+        r = sh(f"docker run --rm --network {NET} {image} bash -ec " + shlex.quote((bullseye if image == "debian:11" else "") + script))
+        check(r.returncode == 0 and "fooapp 1.0.0 amd64" in r.stdout and "fooapp_1.0.0_arm64.deb" in r.stdout, f"{image}: signed update (no warnings), install, foreign-arch download")
+
     print("== upgrade")
     st = json.load(open(STATE))
     st["repos"]["acme/fooapp"]["releases"].insert(0, {"id": 2, "tag": "v1.1.0", "assets": ["fooapp_1.1.0_amd64.deb", "fooapp_1.1.0_arm64.deb"]})
