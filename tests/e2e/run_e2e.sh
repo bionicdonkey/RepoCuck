@@ -4,6 +4,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 root="$(cd ../.. && pwd)"
 [ "${SKIP_BUILD:-0}" = "1" ] || docker build -f "$root/deploy/Dockerfile" -t repocuck:dev "$root"
+printf 'e2e-bootstrap-password-1' > admin_pw     # gitignored; mounted as the bootstrap admin password
 ./build_debs.sh fixture/assets >/dev/null
 docker compose -f docker-compose.e2e.yml down -v >/dev/null 2>&1 || true
 docker compose -f docker-compose.e2e.yml up -d
