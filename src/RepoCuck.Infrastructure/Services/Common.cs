@@ -57,9 +57,16 @@ public sealed class AuditService(IDbContextFactory<AppDbContext> dbf, IClock clo
         await using var db = await dbf.CreateDbContextAsync(ct);
         db.AuditLog.Add(new AuditEntry
         {
-            OccurredAt = clock.UtcNow, ActorUserId = actor, ActorLabel = actorLabel ?? (actor is null ? "system" : null),
-            ActorIp = ip, Action = action, TargetType = targetType, TargetId = targetId, Outcome = outcome,
-            Metadata = metadata is null ? "{}" : JsonSerializer.Serialize(metadata), CorrelationId = correlationId
+            OccurredAt = clock.UtcNow,
+            ActorUserId = actor,
+            ActorLabel = actorLabel ?? (actor is null ? "system" : null),
+            ActorIp = ip,
+            Action = action,
+            TargetType = targetType,
+            TargetId = targetId,
+            Outcome = outcome,
+            Metadata = metadata is null ? "{}" : JsonSerializer.Serialize(metadata),
+            CorrelationId = correlationId
         });
         await db.SaveChangesAsync(ct);
     }

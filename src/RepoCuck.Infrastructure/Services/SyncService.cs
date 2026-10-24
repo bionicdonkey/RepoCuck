@@ -284,8 +284,17 @@ public sealed class SyncService(
             {
                 var stored = await blobs.AdoptFileAsync(tempPath, dl.Sha256, dl.Sha512, dl.Size, ct);
                 tempPath = "";
-                blob = new Blob { Id = Ids.New(), Sha256 = stored.Sha256, Sha512 = stored.Sha512, SizeBytes = stored.Size, StorageKey = stored.StorageKey,
-                    ContentType = "application/vnd.debian.binary-package", CreatedAt = now, LastReferencedAt = now };
+                blob = new Blob
+                {
+                    Id = Ids.New(),
+                    Sha256 = stored.Sha256,
+                    Sha512 = stored.Sha512,
+                    SizeBytes = stored.Size,
+                    StorageKey = stored.StorageKey,
+                    ContentType = "application/vnd.debian.binary-package",
+                    CreatedAt = now,
+                    LastReferencedAt = now
+                };
                 db.Blobs.Add(blob);
             }
             else blob.LastReferencedAt = now;
@@ -307,11 +316,21 @@ public sealed class SyncService(
             {
                 variant = new PackageVariant
                 {
-                    Id = Ids.New(), PackageId = package.Id, Version = c.Version, Architecture = c.Architecture, Channel = channel,
-                    Control = ControlJson.Serialize(c.Fields), Description = c.Description, SizeBytes = blob.SizeBytes,
-                    Sha256 = blob.Sha256, Sha512 = blob.Sha512, BlobId = blob.Id,
-                    State = verdict.Quarantine ? VariantState.Quarantined : VariantState.Active, QuarantineReason = verdict.Reason,
-                    PublishAfter = publishAfter, FirstSeenAt = now
+                    Id = Ids.New(),
+                    PackageId = package.Id,
+                    Version = c.Version,
+                    Architecture = c.Architecture,
+                    Channel = channel,
+                    Control = ControlJson.Serialize(c.Fields),
+                    Description = c.Description,
+                    SizeBytes = blob.SizeBytes,
+                    Sha256 = blob.Sha256,
+                    Sha512 = blob.Sha512,
+                    BlobId = blob.Id,
+                    State = verdict.Quarantine ? VariantState.Quarantined : VariantState.Active,
+                    QuarantineReason = verdict.Reason,
+                    PublishAfter = publishAfter,
+                    FirstSeenAt = now
                 };
                 variant.Filename = await AllocateFilenameAsync(db, c, blob, ct);
                 db.PackageVariants.Add(variant);

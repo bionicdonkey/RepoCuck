@@ -55,10 +55,17 @@ public sealed class MockIdp : IAsyncDisposable
     {
         app.MapGet("/.well-known/openid-configuration", () => Results.Json(new
         {
-            issuer = Issuer, authorization_endpoint = Issuer + "/authorize", token_endpoint = Issuer + "/token", jwks_uri = Issuer + "/jwks",
-            end_session_endpoint = Issuer + "/logout", response_types_supported = new[] { "code" }, subject_types_supported = new[] { "public" },
-            id_token_signing_alg_values_supported = new[] { "RS256" }, code_challenge_methods_supported = new[] { "S256" },
-            grant_types_supported = new[] { "authorization_code" }, token_endpoint_auth_methods_supported = new[] { "client_secret_post", "client_secret_basic" }
+            issuer = Issuer,
+            authorization_endpoint = Issuer + "/authorize",
+            token_endpoint = Issuer + "/token",
+            jwks_uri = Issuer + "/jwks",
+            end_session_endpoint = Issuer + "/logout",
+            response_types_supported = new[] { "code" },
+            subject_types_supported = new[] { "public" },
+            id_token_signing_alg_values_supported = new[] { "RS256" },
+            code_challenge_methods_supported = new[] { "S256" },
+            grant_types_supported = new[] { "authorization_code" },
+            token_endpoint_auth_methods_supported = new[] { "client_secret_post", "client_secret_basic" }
         }));
         app.MapGet("/jwks", () =>
         {
@@ -89,13 +96,21 @@ public sealed class MockIdp : IAsyncDisposable
             if (expected != c.Challenge) { PkceFailure = true; return Results.Json(new { error = "invalid_grant", error_description = "pkce" }, statusCode: 400); }
             var claims = new Dictionary<string, object>
             {
-                ["sub"] = c.User.Subject, ["preferred_username"] = c.User.Username, ["nonce"] = c.Nonce, ["groups"] = c.User.Groups,
+                ["sub"] = c.User.Subject,
+                ["preferred_username"] = c.User.Username,
+                ["nonce"] = c.Nonce,
+                ["groups"] = c.User.Groups,
                 ["email_verified"] = c.User.EmailVerified
             };
             if (c.User.Email is not null) claims["email"] = c.User.Email;
             var desc = new SecurityTokenDescriptor
             {
-                Issuer = Issuer, Audience = ClientId, Claims = claims, IssuedAt = DateTime.UtcNow, NotBefore = DateTime.UtcNow.AddSeconds(-5), Expires = DateTime.UtcNow.AddMinutes(5),
+                Issuer = Issuer,
+                Audience = ClientId,
+                Claims = claims,
+                IssuedAt = DateTime.UtcNow,
+                NotBefore = DateTime.UtcNow.AddSeconds(-5),
+                Expires = DateTime.UtcNow.AddMinutes(5),
                 SigningCredentials = new SigningCredentials(SigningOverride is null ? _key : new RsaSecurityKey(SigningOverride) { KeyId = "k1" }, SecurityAlgorithms.RsaSha256)
             };
             if (Mutate is not null) desc = Mutate(desc);

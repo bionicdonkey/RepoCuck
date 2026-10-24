@@ -1,0 +1,67 @@
+# RepoCuck reference stack: app + PostgreSQL + Cloudflare Tunnel (cloudflared).
+#   cp .env.example .env   # fill in DB_PASSWORD, CLOUDFLARE_TUNNEL_TOKEN, REPOCUCK_BASE_URL
+#   mkdir -p secrets && openssl rand -base64 24 > secrets/admin_password && openssl rand -base64 32 > secrets/gpg_passphrase
+#   docker compose up -d
+# In the Cloudflare Zero Trust dashboard point the tunnel's public hostname at  http://app:8080
+name: repocuck
+services:
+  app:
+    image: ${REPOCUCK_IMAGE:-ghcr.io/example/repocuck:1.0.0}
+    restart: unless-stopped
+    read_only: true
+    tmpfs: ["/tmp:size=256m,mode=1777"]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+    pids_limit: 512
+    mem_limit: 2g
+    expose: ["8080"]                 # not published: only the tunnel reaches it
+    networks: [internal]
+    environment:
+      ConnectionStrings__Postgres: Host=db;Database=repocuck;Username=repocuck;Password=${DB_PASSWORD}
+      REPOCUCK__BASE_URL: ${REPOCUCK_BASE_URL}          # e.g. https://apt.example.com
+      Security__PublicScheme: https
+      Security__TrustedProxies: 172.30.0.0/24            # the `internal` network below (where cloudflared runs)
+      Security__ClientIpHeader: CF-Connecting-IP
+      Bootstrap__AdminUsername: admin
+      Bootstrap__AdminPasswordFile: /run/secrets/admin_password
+      Apt__SigningKeyPassphraseFile: /run/secrets/gpg_passphrase
+      GitHub__Token: ${GITHUB_TOKEN:-}
+    volumes:
+      - repocuck-data:/data
+      - ./secrets/admin_password:/run/secrets/admin_password:ro
+      - ./secrets/gpg_passphrase:/run/secrets/gpg_passphrase:ro
+    depends_on:
+      db: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/readyz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    networks: [internal]
+    environment:
+      POSTGRES_DB: repocuck
+      POSTGRES_USER: repocuck
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U repocuck"]
+      interval: 10s
+      retries: 5
+  cloudflared:
+    image: cloudflare/cloudflared:2025.9.1       # pin by digest in real deployments
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
+    networks: [internal]
+    depends_on: [app]
+networks:
+  internal:
+    ipam:
+      config: [{ subnet: 172.30.0.0/24 }]
+volumes:
+  repocuck-data:
+  pgdata:

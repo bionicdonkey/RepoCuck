@@ -75,8 +75,20 @@ public static class CoreApi
             if (!string.IsNullOrWhiteSpace(q)) { var like = "%" + q.Trim().Replace("%", "").Replace("_", "") + "%"; rq = rq.Where(r => EF.Functions.ILike(r.FullName, like)); }
             var rows = await rq.OrderBy(r => r.FullName).Skip(offset).Take(lim + 1).Select(r => new
             {
-                r.Id, githubId = r.GithubRepoId, r.FullName, r.HtmlUrl, r.Description, r.State, r.StateReason, r.Architectures, r.IncludePrereleases,
-                r.HoldbackHours, r.IsArchived, r.LastSyncedAt, r.LastSyncStatus, r.CreatedAt,
+                r.Id,
+                githubId = r.GithubRepoId,
+                r.FullName,
+                r.HtmlUrl,
+                r.Description,
+                r.State,
+                r.StateReason,
+                r.Architectures,
+                r.IncludePrereleases,
+                r.HoldbackHours,
+                r.IsArchived,
+                r.LastSyncedAt,
+                r.LastSyncStatus,
+                r.CreatedAt,
                 packageCount = db.PackageSources.Count(s => s.RepositoryId == r.Id && s.IsWinner),
                 stale = r.ConsecutiveFailures >= 5
             }).ToListAsync(ct);
@@ -91,10 +103,35 @@ public static class CoreApi
             var last = await db.SyncRuns.AsNoTracking().Where(s => s.RepositoryId == id).OrderByDescending(s => s.StartedAt).Select(s => new { s.Status, s.StartedAt, s.FinishedAt, s.ErrorCategory }).FirstOrDefaultAsync(ct);
             return Results.Json(new
             {
-                r.Id, githubId = r.GithubRepoId, r.Owner, r.Name, r.FullName, r.HtmlUrl, r.Description, r.Notes, license = r.LicenseSpdx, r.DefaultBranch,
-                r.IsArchived, r.State, r.StateReason, r.Architectures, r.SourcePriority, r.IncludePrereleases, r.HoldbackHours, r.AssetIncludeGlob,
-                r.AssetExcludeGlob, r.MaxAssetBytes, r.SyncIntervalMinutes, r.NextSyncAt, r.LastSyncedAt, r.LastSyncStatus, stale = r.ConsecutiveFailures >= 5,
-                requestedBy = proposer, r.CreatedAt, r.ApprovedAt, lastSync = last
+                r.Id,
+                githubId = r.GithubRepoId,
+                r.Owner,
+                r.Name,
+                r.FullName,
+                r.HtmlUrl,
+                r.Description,
+                r.Notes,
+                license = r.LicenseSpdx,
+                r.DefaultBranch,
+                r.IsArchived,
+                r.State,
+                r.StateReason,
+                r.Architectures,
+                r.SourcePriority,
+                r.IncludePrereleases,
+                r.HoldbackHours,
+                r.AssetIncludeGlob,
+                r.AssetExcludeGlob,
+                r.MaxAssetBytes,
+                r.SyncIntervalMinutes,
+                r.NextSyncAt,
+                r.LastSyncedAt,
+                r.LastSyncStatus,
+                stale = r.ConsecutiveFailures >= 5,
+                requestedBy = proposer,
+                r.CreatedAt,
+                r.ApprovedAt,
+                lastSync = last
             });
         });
 
@@ -109,8 +146,19 @@ public static class CoreApi
                               orderby p.Name, v.Version
                               select new
                               {
-                                  variantId = v.Id, package = p.Name, v.Version, v.Architecture, v.Channel, v.State, v.QuarantineReason, v.Filename, v.SizeBytes, v.Sha256,
-                                  v.PublishAfter, v.PublishedAt, isWinner = s.IsWinner,
+                                  variantId = v.Id,
+                                  package = p.Name,
+                                  v.Version,
+                                  v.Architecture,
+                                  v.Channel,
+                                  v.State,
+                                  v.QuarantineReason,
+                                  v.Filename,
+                                  v.SizeBytes,
+                                  v.Sha256,
+                                  v.PublishAfter,
+                                  v.PublishedAt,
+                                  isWinner = s.IsWinner,
                                   others = db.PackageSources.Where(o => o.VariantId == v.Id && o.Id != s.Id)
                                       .Join(db.Repositories, o => o.RepositoryId, r => r.Id, (o, r) => new { repository = r.FullName, identical = o.BlobId == s.BlobId, winner = o.IsWinner }).ToList()
                               }).Take(2000).ToListAsync(ct);
@@ -128,7 +176,12 @@ public static class CoreApi
             {
                 items = rels.Select(r => new
                 {
-                    r.Id, r.TagName, r.Name, r.IsPrerelease, r.PublishedAt, r.HtmlUrl,
+                    r.Id,
+                    r.TagName,
+                    r.Name,
+                    r.IsPrerelease,
+                    r.PublishedAt,
+                    r.HtmlUrl,
                     assets = assets.Where(a => a.ReleaseId == r.Id).Select(a => new { a.Name, a.SizeBytes, a.State, reason = a.ExcludedReason ?? a.FailureReason, a.DownloadCount, noUpstreamDigest = a.DigestSha256 == null })
                 })
             });
@@ -143,8 +196,20 @@ public static class CoreApi
             var rows = await db.SyncRuns.AsNoTracking().Where(s => s.RepositoryId == id).OrderByDescending(s => s.StartedAt).Skip(offset).Take(lim + 1)
                 .Select(s => new
                 {
-                    s.Id, s.Trigger, s.StartedAt, s.FinishedAt, s.Status, s.ReleasesSeen, s.AssetsSeen, s.AssetsIngested, s.AssetsExcluded, s.AssetsFailed,
-                    s.VariantsCreated, s.ConflictsFound, s.ErrorCategory, error = admin ? s.Error : null
+                    s.Id,
+                    s.Trigger,
+                    s.StartedAt,
+                    s.FinishedAt,
+                    s.Status,
+                    s.ReleasesSeen,
+                    s.AssetsSeen,
+                    s.AssetsIngested,
+                    s.AssetsExcluded,
+                    s.AssetsFailed,
+                    s.VariantsCreated,
+                    s.ConflictsFound,
+                    s.ErrorCategory,
+                    error = admin ? s.Error : null
                 }).ToListAsync(ct);
             return Results.Json(Page(rows, offset, lim));
         });
@@ -215,8 +280,18 @@ public static class CoreApi
         join u in db.Users.AsNoTracking() on r.RequestedBy equals u.Id
         select new RequestRow
         {
-            Id = r.Id, Kind = r.Kind, RepositoryId = repo.Id, RepositoryName = repo.FullName, RepositoryState = repo.State, RequestedById = u.Id,
-            RequestedBy = u.DisplayName, Architectures = r.Architectures, Note = r.Note, Status = r.Status, DecisionNote = r.DecisionNote,
-            DecidedAt = r.DecidedAt, CreatedAt = r.CreatedAt
+            Id = r.Id,
+            Kind = r.Kind,
+            RepositoryId = repo.Id,
+            RepositoryName = repo.FullName,
+            RepositoryState = repo.State,
+            RequestedById = u.Id,
+            RequestedBy = u.DisplayName,
+            Architectures = r.Architectures,
+            Note = r.Note,
+            Status = r.Status,
+            DecisionNote = r.DecisionNote,
+            DecidedAt = r.DecidedAt,
+            CreatedAt = r.CreatedAt
         };
 }

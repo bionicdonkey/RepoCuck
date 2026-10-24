@@ -97,8 +97,13 @@ public sealed class OidcSchemeManager(
         foreach (var s in p.Scopes.Split([' ', ','], StringSplitOptions.RemoveEmptyEntries)) o.Scope.Add(s);
         o.TokenValidationParameters = new TokenValidationParameters
         {
-            ValidateIssuerSigningKey = true, ValidateLifetime = true, ValidateIssuer = true, ValidateAudience = true,
-            ClockSkew = TimeSpan.FromMinutes(2), NameClaimType = "preferred_username", RequireSignedTokens = true,
+            ValidateIssuerSigningKey = true,
+            ValidateLifetime = true,
+            ValidateIssuer = true,
+            ValidateAudience = true,
+            ClockSkew = TimeSpan.FromMinutes(2),
+            NameClaimType = "preferred_username",
+            RequireSignedTokens = true,
             ValidAlgorithms = [SecurityAlgorithms.RsaSha256, SecurityAlgorithms.RsaSha384, SecurityAlgorithms.RsaSha512,
                 SecurityAlgorithms.EcdsaSha256, SecurityAlgorithms.EcdsaSha384, SecurityAlgorithms.EcdsaSha512,
                 SecurityAlgorithms.RsaSsaPssSha256, SecurityAlgorithms.RsaSsaPssSha384, SecurityAlgorithms.RsaSsaPssSha512]

@@ -1,0 +1,36 @@
+@page "/admin/signing"
+@inject ISigner Signer
+@inject IAuditService Audit
+@inject JobQueue Jobs
+@functions {
+    public IReadOnlyList<SigningKeyInfo> Keys { get; set; } = [];
+    public bool InProgress => Signer.ActiveFingerprints.Count > 1;
+    public async Task OnGetAsync(CancellationToken ct)
+    {
+        await Signer.EnsureReadyAsync(ct);
+        Keys = await Signer.ListKeysAsync(ct);
+    }
+    public async Task<IActionResult> OnPostAsync(string action, CancellationToken ct)
+    {
+        try
+        {
+            if (action == "start") { var f = await Signer.StartRotationAsync(ct); await Audit.WriteAsync("signing.rotation_started", User.Id(), "signing", f, ct: ct); TempData["Flash"] = "Rotation started: indices are now signed by both keys."; }
+            else if (action == "complete") { await Signer.CompleteRotationAsync(ct); await Audit.WriteAsync("signing.rotation_completed", User.Id(), "signing", Signer.Fingerprint, ct: ct); TempData["Flash"] = "Rotation completed: only the new key signs now."; }
+            await Jobs.EnqueueAsync(JobKind.RebuildApt, null, "rebuild", ct: ct);
+        }
+        catch (InvalidOperationException e) { TempData["Error"] = e.Message; }
+        return RedirectToPage();
+    }
+}
+@{ ViewData["Title"] = "Signing key"; }
+<h1>Repository signing key</h1>
+<table><thead><tr><th>Fingerprint</th><th>Expires</th><th>Signing</th></tr></thead><tbody>
+@foreach (var k in Keys) { <tr><td><code>@k.Fingerprint</code></td><td>@(k.Expires?.ToString("yyyy-MM-dd") ?? "never")</td><td>@(k.Active ? "yes" : "no")</td></tr> }
+</tbody></table>
+<p>Public key for clients: <a href="/apt/repocuck.gpg">repocuck.gpg</a> (binary) · <a href="/apt/repocuck.asc">repocuck.asc</a> (armored). During a rotation it contains both keys.</p>
+<h2>Rotation</h2>
+<p class="muted">Start: generate a new key and sign with both. Give clients time (≥ 7 days) to fetch the updated keyring, then complete the rotation to drop the old key.</p>
+<form method="post" class="row">
+  @if (!InProgress) { <button type="submit" name="action" value="start">Start rotation</button> }
+  else { <button type="submit" name="action" value="complete" class="danger">Complete rotation (drop old key)</button> }
+</form>

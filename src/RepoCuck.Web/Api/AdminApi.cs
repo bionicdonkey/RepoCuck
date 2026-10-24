@@ -16,6 +16,7 @@ public sealed record ReasonBody(string? Reason);
 public sealed record SyncBody(bool Reevaluate);
 public sealed record CreateUserBody(string Username, string? DisplayName, string? Email, string? Password, string? Role);
 public sealed record UpdateUserBody(string? Role, bool? IsActive, string? DisplayName);
+public sealed record RotateBody(string? Action);
 public sealed record SettingsBody(string[]? ArchAllowList, string[]? ReservedNames);
 
 public static class AdminApi
@@ -106,7 +107,9 @@ public static class AdminApi
                 version = typeof(AdminApi).Assembly.GetName().Version?.ToString(3) ?? "1.0.0",
                 archAllowList = await s.GetAsync<string[]>(SettingsService.ArchAllowList, ct) ?? Architectures.ParseList(apt.Value.Architectures),
                 reservedNames = await s.GetAsync<string[]>(SettingsService.ReservedNames, ct) ?? [],
-                retention = ret.Value, limits = lim.Value, security = new { sec.Value.PublicScheme, sec.Value.ClientIpHeader, sec.Value.TrustedProxies }
+                retention = ret.Value,
+                limits = lim.Value,
+                security = new { sec.Value.PublicScheme, sec.Value.ClientIpHeader, sec.Value.TrustedProxies }
             }));
         a.MapPatch("/settings", async (HttpContext ctx, SettingsBody b, SettingsService s, IAuditService audit, CancellationToken ct) =>
         {
@@ -124,7 +127,26 @@ public static class AdminApi
         a.MapGet("/signing", async (ISigner signer, CancellationToken ct) =>
         {
             await signer.EnsureReadyAsync(ct);
-            return Results.Json(new { fingerprint = signer.Fingerprint, expires = await signer.GetKeyExpiryAsync(ct) });
+            var keys = await signer.ListKeysAsync(ct);
+            return Results.Json(new
+            {
+                fingerprint = signer.Fingerprint,
+                expires = (await signer.GetKeyExpiryAsync(ct)),
+                rotationInProgress = signer.ActiveFingerprints.Count > 1,
+                keys = keys.Select(k => new { k.Fingerprint, k.Expires, k.Active })
+            });
+        });
+        a.MapPost("/signing/rotate", async (HttpContext ctx, RotateBody b, ISigner signer, IAuditService audit, JobQueue jobs, CancellationToken ct) =>
+        {
+            try
+            {
+                if (b.Action == "start") { var fpr = await signer.StartRotationAsync(ct); await audit.WriteAsync("signing.rotation_started", ctx.User.Id(), "signing", fpr, ct: ct); }
+                else if (b.Action == "complete") { await signer.CompleteRotationAsync(ct); await audit.WriteAsync("signing.rotation_completed", ctx.User.Id(), "signing", signer.Fingerprint, ct: ct); }
+                else throw new ServiceException("validation_error", "action must be start or complete.");
+            }
+            catch (InvalidOperationException e) { throw new ServiceException("invalid_state", e.Message, 409); }
+            await jobs.EnqueueAsync(JobKind.RebuildApt, null, "rebuild", ct: ct);     // republish immediately with the new signing set
+            return Results.Json(new { rotationInProgress = signer.ActiveFingerprints.Count > 1, signer.Fingerprint, active = signer.ActiveFingerprints });
         });
         a.MapGet("/audit", async (IDbContextFactory<AppDbContext> dbf, string? action, Guid? actor, string? format, string? cursor, int? limit, CancellationToken ct) =>
         {
@@ -159,7 +181,10 @@ public static class AdminApi
                               where db.PackageSources.Count(s => s.VariantId == v.Id) > 1
                               select new
                               {
-                                  variantId = v.Id, package = p.Name, v.Version, v.Architecture,
+                                  variantId = v.Id,
+                                  package = p.Name,
+                                  v.Version,
+                                  v.Architecture,
                                   sources = db.PackageSources.Where(s => s.VariantId == v.Id).Join(db.Repositories, s => s.RepositoryId, r => r.Id,
                                       (s, r) => new { repository = r.FullName, r.Id, r.SourcePriority, s.IsWinner, identical = s.BlobId == v.BlobId }).ToList()
                               }).Take(500).ToListAsync(ct);

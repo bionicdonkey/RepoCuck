@@ -22,8 +22,20 @@ public static partial class ProviderApi
 
     public static object Dto(IdentityProvider p) => new
     {
-        p.Id, p.Slug, p.DisplayName, p.Authority, p.ClientId, hasSecret = p.ClientSecretEnc is not null || !string.IsNullOrEmpty(p.ClientSecretFile),
-        p.ClientSecretFile, p.Scopes, p.GroupClaim, p.UsernameClaim, p.EmailClaim, p.AutoProvision, p.RequireVerifiedEmail, p.Enabled
+        p.Id,
+        p.Slug,
+        p.DisplayName,
+        p.Authority,
+        p.ClientId,
+        hasSecret = p.ClientSecretEnc is not null || !string.IsNullOrEmpty(p.ClientSecretFile),
+        p.ClientSecretFile,
+        p.Scopes,
+        p.GroupClaim,
+        p.UsernameClaim,
+        p.EmailClaim,
+        p.AutoProvision,
+        p.RequireVerifiedEmail,
+        p.Enabled
     };
 
     public static void MapProviderApi(this RouteGroupBuilder admin)
@@ -80,8 +92,11 @@ public static partial class ProviderApi
         g.MapGet("/{id:guid}/mappings", async (Guid id, IDbContextFactory<AppDbContext> dbf, CancellationToken ct) =>
         {
             await using var db = await dbf.CreateDbContextAsync(ct);
-            return Results.Json(new { items = await db.RoleMappings.AsNoTracking().Where(m => m.ProviderId == id).OrderByDescending(m => m.Priority).ThenBy(m => m.ClaimValue)
-                .Select(m => new MappingItem(m.ClaimValue, m.Role, m.Priority)).ToListAsync(ct) });
+            return Results.Json(new
+            {
+                items = await db.RoleMappings.AsNoTracking().Where(m => m.ProviderId == id).OrderByDescending(m => m.Priority).ThenBy(m => m.ClaimValue)
+                .Select(m => new MappingItem(m.ClaimValue, m.Role, m.Priority)).ToListAsync(ct)
+            });
         });
         g.MapPut("/{id:guid}/mappings", async (HttpContext ctx, Guid id, MappingItem[] items, IDbContextFactory<AppDbContext> dbf, IAuditService audit, CancellationToken ct) =>
         {

@@ -37,7 +37,7 @@
 </form>
 <h2>Signing key</h2>
 <p>Fingerprint: <code>@Fingerprint</code> @if (Expiry is not null) { <text>· expires @Expiry.Value.ToString("yyyy-MM-dd")</text> }<br>
-  <a href="/apt/repocuck.gpg">Binary key</a> · <a href="/apt/repocuck.asc">Armored key</a></p>
+  <a href="/apt/repocuck.gpg">Binary key</a> · <a href="/apt/repocuck.asc">Armored key</a> · <a href="/admin/signing">Rotate</a></p>
 <h2>Effective runtime configuration (read-only)</h2>
 <ul>
   <li>Public scheme: <code>@Sec.Value.PublicScheme</code> · client IP header: <code>@Sec.Value.ClientIpHeader</code> · trusted proxies: <code>@(string.IsNullOrEmpty(Sec.Value.TrustedProxies) ? "none" : Sec.Value.TrustedProxies)</code></li>

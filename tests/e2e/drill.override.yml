@@ -1,0 +1,25 @@
+# Used by restore_drill.py on top of deploy/docker-compose.yml: no real tunnel, plain http, fake GitHub.
+services:
+  app:
+    image: repocuck:dev
+    ports: ["18081:8080"]
+    environment:
+      Security__PublicScheme: http
+      Security__TrustedProxies: ""
+      REPOCUCK__BASE_URL: http://app:8080
+      GitHub__ApiBaseUrl: http://fakegh:8000
+      GitHub__AllowInsecureForTesting: "true"
+    depends_on:
+      db: { condition: service_healthy }
+      fakegh: { condition: service_started }
+  cloudflared:
+    image: alpine:3
+    command: ["sleep", "infinity"]
+    environment: {}
+  fakegh:
+    image: python:3.11-slim
+    command: ["python", "/fake_github.py"]
+    networks: [internal]
+    volumes:
+      - ${E2E_DIR}/fake_github.py:/fake_github.py:ro
+      - ${E2E_DIR}/fixture:/fixture

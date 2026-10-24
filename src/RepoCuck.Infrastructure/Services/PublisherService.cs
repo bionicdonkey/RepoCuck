@@ -93,7 +93,8 @@ public sealed class PublisherService(
         // Skip if nothing changed and the current generation is recent.
         var current = await (from c in db.AptCurrent.AsNoTracking()
                              join g in db.AptGenerations.AsNoTracking() on c.GenerationId equals g.Id
-                             where c.SuiteId == suite.Id select g).FirstOrDefaultAsync(ct);
+                             where c.SuiteId == suite.Id
+                             select g).FirstOrDefaultAsync(ct);
         if (current is not null && !force && now - (current.ActivatedAt ?? current.CreatedAt) < TimeSpan.FromHours(12))
         {
             var old = await db.AptGenerationFiles.AsNoTracking().Where(f => f.GenerationId == current.Id && f.Path.EndsWith("/Packages"))
@@ -111,8 +112,15 @@ public sealed class PublisherService(
         var release = ReleaseWriter.WriteRelease(suite.Origin, suite.Label, suite.Name, genNo, advertised, suite.Component,
             suite.Description, now, now.AddDays(suite.ValidUntilDays), suite.NotAutomatic, files);
 
-        var gen = new AptGeneration { Id = Ids.New(), SuiteId = suite.Id, GenerationNo = genNo, Status = "building", CreatedAt = now,
-            PackageCount = rows.Select(x => x.v.Id).Distinct().Count() };
+        var gen = new AptGeneration
+        {
+            Id = Ids.New(),
+            SuiteId = suite.Id,
+            GenerationNo = genNo,
+            Status = "building",
+            CreatedAt = now,
+            PackageCount = rows.Select(x => x.v.Id).Distinct().Count()
+        };
         db.AptGenerations.Add(gen);
         await db.SaveChangesAsync(ct);
         try
@@ -178,8 +186,18 @@ public sealed class PublisherService(
                    ?? db.Blobs.Local.FirstOrDefault(b => b.Sha256 == stored.Sha256);
         if (blob is null)
         {
-            blob = new Blob { Id = Ids.New(), Sha256 = stored.Sha256, Sha512 = stored.Sha512, SizeBytes = stored.Size, StorageKey = stored.StorageKey,
-                ContentType = "application/octet-stream", IsIndex = true, CreatedAt = clock.UtcNow, LastReferencedAt = clock.UtcNow };
+            blob = new Blob
+            {
+                Id = Ids.New(),
+                Sha256 = stored.Sha256,
+                Sha512 = stored.Sha512,
+                SizeBytes = stored.Size,
+                StorageKey = stored.StorageKey,
+                ContentType = "application/octet-stream",
+                IsIndex = true,
+                CreatedAt = clock.UtcNow,
+                LastReferencedAt = clock.UtcNow
+            };
             db.Blobs.Add(blob);
             await db.SaveChangesAsync(ct);
         }

@@ -12,6 +12,8 @@ using RepoCuck.Infrastructure;
 using RepoCuck.Web.Api;
 using RepoCuck.Web.Infrastructure;
 
+if (args.Length > 0 && (args[0] is "--migrate" or "admin")) return await RepoCuck.Web.Cli.RunAsync(args);
+
 var builder = WebApplication.CreateBuilder(args);
 var cfg = builder.Configuration;
 builder.WebHost.ConfigureKestrel(k => { k.AddServerHeader = false; k.Limits.MaxRequestHeadersTotalSize = 16 * 1024; k.Limits.MaxRequestLineSize = 8 * 1024; k.Limits.MaxRequestBodySize = 1024 * 1024; });
@@ -137,6 +139,7 @@ app.MapRazorPages();
 app.MapGet("/", (HttpContext c) => Results.Redirect("/repos")).ExcludeFromDescription();
 
 await app.RunAsync();
+return 0;
 
 static void ValidateConfiguration(WebApplicationBuilder b, SecurityOptions sec, AppOptions app)
 {

@@ -86,8 +86,14 @@ public sealed class ExternalLoginService(IDbContextFactory<AppDbContext> dbf, IC
             for (var i = 2; await db.Users.AnyAsync(u => u.Username == name, ct); i++) name = $"{baseName}{i}";
             user = new User
             {
-                Id = Ids.New(), Username = name, DisplayName = c.Username ?? name, Email = c.Email, Role = role, SecurityStamp = Guid.NewGuid(),
-                CreatedAt = now, UpdatedAt = now
+                Id = Ids.New(),
+                Username = name,
+                DisplayName = c.Username ?? name,
+                Email = c.Email,
+                Role = role,
+                SecurityStamp = Guid.NewGuid(),
+                CreatedAt = now,
+                UpdatedAt = now
             };
             db.Users.Add(user);
             await db.SaveChangesAsync(ct);

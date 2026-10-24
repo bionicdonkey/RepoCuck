@@ -102,9 +102,11 @@ public static partial class AptEndpoints
         var prefix = "/" + apt.Value.PathPrefix.Trim('/');
         await using var db = await dbf.CreateDbContextAsync(ct);
         var suites = await db.AptSuites.AsNoTracking().Where(s => s.IsEnabled).Select(s => s.Name).ToListAsync(ct);
-        var pkgs = await (from v in db.PackageVariants.AsNoTracking() join p in db.Packages on v.PackageId equals p.Id
+        var pkgs = await (from v in db.PackageVariants.AsNoTracking()
+                          join p in db.Packages on v.PackageId equals p.Id
                           where v.State == VariantState.Active && v.PublishedAt != null
-                          orderby p.Name select new { p.Name, v.Version, v.Architecture, v.Description }).Take(500).ToListAsync(ct);
+                          orderby p.Name
+                          select new { p.Name, v.Version, v.Architecture, v.Description }).Take(500).ToListAsync(ct);
         string fpr = ""; DateTimeOffset? exp = null;
         try { await signer.EnsureReadyAsync(ct); fpr = signer.Fingerprint; exp = await signer.GetKeyExpiryAsync(ct); } catch { /* key not ready */ }
         var archs = await db.Repositories.AsNoTracking().Where(r => r.State == RepoState.Active || r.State == RepoState.Paused).Select(r => r.Architectures).ToListAsync(ct);

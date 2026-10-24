@@ -29,8 +29,15 @@ public sealed class JobQueue(IDbContextFactory<AppDbContext> dbf, IClock clock)
             }
             var job = new Job
             {
-                Id = Ids.New(), Kind = kind, Payload = JsonSerializer.Serialize(payload ?? new { }), DedupeKey = dedupeKey,
-                State = JobState.Pending, MaxAttempts = maxAttempts, RunAfter = runAfter, CreatedAt = now, UpdatedAt = now
+                Id = Ids.New(),
+                Kind = kind,
+                Payload = JsonSerializer.Serialize(payload ?? new { }),
+                DedupeKey = dedupeKey,
+                State = JobState.Pending,
+                MaxAttempts = maxAttempts,
+                RunAfter = runAfter,
+                CreatedAt = now,
+                UpdatedAt = now
             };
             db.Jobs.Add(job);
             try { await db.SaveChangesAsync(ct); return job.Id; }

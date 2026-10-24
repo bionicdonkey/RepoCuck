@@ -85,9 +85,16 @@ public sealed class UserService(
         var now = clock.UtcNow;
         var user = new User
         {
-            Id = Ids.New(), Username = username, DisplayName = string.IsNullOrWhiteSpace(displayName) ? username : displayName.Trim(),
-            Email = string.IsNullOrWhiteSpace(email) ? null : email.Trim(), PasswordHash = password is null ? null : PasswordHasher.Hash(password),
-            Role = role, MustChangePassword = mustChange, SecurityStamp = Guid.NewGuid(), CreatedAt = now, UpdatedAt = now
+            Id = Ids.New(),
+            Username = username,
+            DisplayName = string.IsNullOrWhiteSpace(displayName) ? username : displayName.Trim(),
+            Email = string.IsNullOrWhiteSpace(email) ? null : email.Trim(),
+            PasswordHash = password is null ? null : PasswordHasher.Hash(password),
+            Role = role,
+            MustChangePassword = mustChange,
+            SecurityStamp = Guid.NewGuid(),
+            CreatedAt = now,
+            UpdatedAt = now
         };
         db.Users.Add(user);
         await db.SaveChangesAsync(ct);

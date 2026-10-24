@@ -25,8 +25,12 @@ public static class Problems
         var body = new Dictionary<string, object?>
         {
             ["type"] = $"https://repocuck.example/errors/{code.Replace('_', '-')}",
-            ["title"] = title, ["status"] = status, ["detail"] = detail, ["instance"] = ctx.Request.Path.Value,
-            ["code"] = code, ["traceId"] = Activity.Current?.Id ?? ctx.TraceIdentifier
+            ["title"] = title,
+            ["status"] = status,
+            ["detail"] = detail,
+            ["instance"] = ctx.Request.Path.Value,
+            ["code"] = code,
+            ["traceId"] = Activity.Current?.Id ?? ctx.TraceIdentifier
         };
         if (extra is not null)
             foreach (var p in extra.GetType().GetProperties()) body[char.ToLowerInvariant(p.Name[0]) + p.Name[1..]] = p.GetValue(extra);
@@ -37,11 +41,20 @@ public static class Problems
 
     public static string Title(string code) => code switch
     {
-        "validation_error" => "Validation failed", "unauthenticated" => "Authentication required", "forbidden" => "Forbidden",
-        "repository_blocked" => "Repository cannot be requested", "not_found" => "Not found", "repository_not_found" => "Repository not found",
-        "already_watched" => "Repository is already watched", "request_pending" => "Request already pending",
-        "already_enabled" => "Architectures already enabled", "invalid_state" => "Invalid state", "request_limit" => "Request limit reached",
-        "rate_limited" => "Too many requests", "upstream_unavailable" => "Upstream unavailable", _ => "Error"
+        "validation_error" => "Validation failed",
+        "unauthenticated" => "Authentication required",
+        "forbidden" => "Forbidden",
+        "repository_blocked" => "Repository cannot be requested",
+        "not_found" => "Not found",
+        "repository_not_found" => "Repository not found",
+        "already_watched" => "Repository is already watched",
+        "request_pending" => "Request already pending",
+        "already_enabled" => "Architectures already enabled",
+        "invalid_state" => "Invalid state",
+        "request_limit" => "Request limit reached",
+        "rate_limited" => "Too many requests",
+        "upstream_unavailable" => "Upstream unavailable",
+        _ => "Error"
     };
 
     public static void Configure(IApplicationBuilder app) => app.Run(async ctx =>

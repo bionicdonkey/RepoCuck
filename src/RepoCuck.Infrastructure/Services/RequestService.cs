@@ -66,9 +66,21 @@ public sealed class RequestService(
             {
                 repo = new Repository
                 {
-                    Id = Ids.New(), GithubRepoId = meta.Id, Owner = meta.Owner, Name = meta.Name, FullName = meta.FullName, HtmlUrl = meta.HtmlUrl,
-                    Description = meta.Description, LicenseSpdx = meta.License, DefaultBranch = meta.DefaultBranch, IsArchived = meta.Archived,
-                    State = RepoState.Proposed, Architectures = archs, ProposedBy = userId, CreatedAt = now, UpdatedAt = now
+                    Id = Ids.New(),
+                    GithubRepoId = meta.Id,
+                    Owner = meta.Owner,
+                    Name = meta.Name,
+                    FullName = meta.FullName,
+                    HtmlUrl = meta.HtmlUrl,
+                    Description = meta.Description,
+                    LicenseSpdx = meta.License,
+                    DefaultBranch = meta.DefaultBranch,
+                    IsArchived = meta.Archived,
+                    State = RepoState.Proposed,
+                    Architectures = archs,
+                    ProposedBy = userId,
+                    CreatedAt = now,
+                    UpdatedAt = now
                 };
                 db.Repositories.Add(repo);
             }

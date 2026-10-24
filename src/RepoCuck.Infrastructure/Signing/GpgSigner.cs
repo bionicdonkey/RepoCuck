@@ -14,7 +14,11 @@ public sealed class GpgSigner(IOptions<AptOptions> options, IOptions<StorageOpti
     private bool _ready;
     private string GnupgHome => Environment.GetEnvironmentVariable("GNUPGHOME") ?? Path.Combine(storage.Value.Root, "gnupg");
 
+    private List<string> _active = new();
+    private string ActiveFile => Path.Combine(GnupgHome, "active-fingerprints");
+
     public string Fingerprint => _fingerprint ?? throw new InvalidOperationException("Signer not initialised.");
+    public IReadOnlyList<string> ActiveFingerprints => _active;
 
     public async Task EnsureReadyAsync(CancellationToken ct)
     {
@@ -39,6 +43,8 @@ public sealed class GpgSigner(IOptions<AptOptions> options, IOptions<StorageOpti
                 await Run(["--batch", "--no-tty", "--yes", "--import", o.SigningKeyPath], null, ct, passphrase: true);
             }
             _fingerprint = await FindFingerprintAsync(ct);
+            _active = LoadActive() ?? [_fingerprint];
+            _fingerprint = _active[0];
             if (o.KeyFingerprint is { Length: > 0 } pinned &&
                 !string.Equals(pinned.Replace(" ", ""), _fingerprint, StringComparison.OrdinalIgnoreCase))
                 throw new InvalidOperationException($"Signing key fingerprint {_fingerprint} does not match pinned {pinned}.");
@@ -46,6 +52,75 @@ public sealed class GpgSigner(IOptions<AptOptions> options, IOptions<StorageOpti
             await SignAsyncCore("probe\n"u8.ToArray(), detached: true, ct);
             _ready = true;
             logger.LogInformation("Signing key ready: {Fingerprint}", _fingerprint);
+        }
+        finally { _gate.Release(); }
+    }
+
+    private List<string>? LoadActive()
+    {
+        if (!File.Exists(ActiveFile)) return null;
+        var l = File.ReadAllLines(ActiveFile).Select(x => x.Trim()).Where(x => x.Length > 0).ToList();
+        return l.Count == 0 ? null : l;
+    }
+
+    private async Task SaveActiveAsync(IEnumerable<string> fprs, CancellationToken ct) =>
+        await File.WriteAllLinesAsync(ActiveFile, fprs, ct);
+
+    private async Task<List<(string Fpr, DateTimeOffset? Expires)>> ListSecretKeysAsync(CancellationToken ct)
+    {
+        var (output, _) = await Run(["--batch", "--no-tty", "--list-secret-keys", "--with-colons", "--fingerprint"], null, ct);
+        var result = new List<(string, DateTimeOffset?)>();
+        DateTimeOffset? exp = null; var expectFpr = false;
+        foreach (var line in output.Split('\n'))
+        {
+            if (line.StartsWith("sec:", StringComparison.Ordinal))
+            {
+                var f = line.Split(':');
+                exp = f.Length > 6 && long.TryParse(f[6], out var e) && e > 0 ? DateTimeOffset.FromUnixTimeSeconds(e) : null;
+                expectFpr = true;
+            }
+            else if (expectFpr && line.StartsWith("fpr:", StringComparison.Ordinal)) { result.Add((line.Split(':')[9], exp)); expectFpr = false; }
+        }
+        return result;
+    }
+
+    public async Task<IReadOnlyList<SigningKeyInfo>> ListKeysAsync(CancellationToken ct)
+    {
+        await EnsureReadyAsync(ct);
+        return (await ListSecretKeysAsync(ct)).Select(k => new SigningKeyInfo(k.Fpr, k.Expires, _active.Contains(k.Fpr))).ToList();
+    }
+
+    public async Task<string> StartRotationAsync(CancellationToken ct)
+    {
+        await EnsureReadyAsync(ct);
+        await _gate.WaitAsync(ct);
+        try
+        {
+            if (_active.Count > 1) throw new InvalidOperationException("A rotation is already in progress.");
+            var before = (await ListSecretKeysAsync(ct)).Select(k => k.Fpr).ToHashSet();
+            await GenerateKeyAsync(ct);
+            var added = (await ListSecretKeysAsync(ct)).Select(k => k.Fpr).Except(before).FirstOrDefault()
+                        ?? throw new InvalidOperationException("Key generation did not produce a new key.");
+            _active = [_active[0], added];   // sign with both during the overlap window
+            await SaveActiveAsync(_active, ct);
+            return added;
+        }
+        finally { _gate.Release(); }
+    }
+
+    public async Task CompleteRotationAsync(CancellationToken ct)
+    {
+        await EnsureReadyAsync(ct);
+        await _gate.WaitAsync(ct);
+        try
+        {
+            if (_active.Count < 2) throw new InvalidOperationException("No rotation is in progress.");
+            var keep = _active[^1];
+            foreach (var old in _active.Where(f => f != keep).ToList())
+                await Run(["--batch", "--no-tty", "--yes", "--delete-secret-and-public-key", old], null, ct);
+            _active = [keep];
+            _fingerprint = keep;
+            await SaveActiveAsync(_active, ct);
         }
         finally { _gate.Release(); }
     }
@@ -118,7 +193,7 @@ public sealed class GpgSigner(IOptions<AptOptions> options, IOptions<StorageOpti
                 TryChmod(passFile, UnixFileMode.UserRead | UnixFileMode.UserWrite);
                 args.AddRange(["--passphrase-file", passFile]);
             }
-            if (_fingerprint is not null) args.AddRange(["--local-user", _fingerprint]);
+            foreach (var fpr in _active.Count > 0 ? _active : (_fingerprint is null ? [] : [_fingerprint])) args.AddRange(["--local-user", fpr]);
             args.AddRange(["--digest-algo", "SHA512"]);
             if (detached) args.AddRange(["--armor", "--detach-sign"]); else args.Add("--clearsign");
             args.AddRange(["--output", output, input]);
@@ -131,13 +206,13 @@ public sealed class GpgSigner(IOptions<AptOptions> options, IOptions<StorageOpti
     public async Task<byte[]> ExportPublicKeyAsync(CancellationToken ct)
     {
         await EnsureReadyAsync(ct);
-        return await RunBinary(["--batch", "--no-tty", "--export", _fingerprint!], ct);
+        return await RunBinary(["--batch", "--no-tty", "--export", .. _active], ct);
     }
 
     public async Task<byte[]> ExportPublicKeyArmoredAsync(CancellationToken ct)
     {
         await EnsureReadyAsync(ct);
-        return await RunBinary(["--batch", "--no-tty", "--armor", "--export", _fingerprint!], ct);
+        return await RunBinary(["--batch", "--no-tty", "--armor", "--export", .. _active], ct);
     }
 
     public async Task<DateTimeOffset?> GetKeyExpiryAsync(CancellationToken ct)
@@ -157,8 +232,11 @@ public sealed class GpgSigner(IOptions<AptOptions> options, IOptions<StorageOpti
     {
         var psi = new ProcessStartInfo("gpg")
         {
-            RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true,
-            UseShellExecute = false, StandardOutputEncoding = null
+            RedirectStandardInput = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            StandardOutputEncoding = null
         };
         psi.Environment["GNUPGHOME"] = GnupgHome;
         foreach (var a in args) psi.ArgumentList.Add(a);

@@ -14,6 +14,10 @@ public sealed class ToggleSigner(GpgSigner inner) : ISigner
 {
     public static volatile bool Fail;
     public string Fingerprint => inner.Fingerprint;
+    public IReadOnlyList<string> ActiveFingerprints => inner.ActiveFingerprints;
+    public Task<IReadOnlyList<SigningKeyInfo>> ListKeysAsync(CancellationToken ct) => inner.ListKeysAsync(ct);
+    public Task<string> StartRotationAsync(CancellationToken ct) => inner.StartRotationAsync(ct);
+    public Task CompleteRotationAsync(CancellationToken ct) => inner.CompleteRotationAsync(ct);
     public Task EnsureReadyAsync(CancellationToken ct) => inner.EnsureReadyAsync(ct);
     public Task<SigningResult> SignAsync(byte[] release, CancellationToken ct) => Fail ? throw new InvalidOperationException("signing unavailable") : inner.SignAsync(release, ct);
     public Task<byte[]> ExportPublicKeyAsync(CancellationToken ct) => inner.ExportPublicKeyAsync(ct);
@@ -184,5 +188,109 @@ public class OperationsTests(PostgresFixture pg)
         var idx = await f.PackagesAsync("amd64");
         Assert.Equal(1, idx.Split("Package: tool\n").Length - 1);
         Assert.Equal(2, await f.WithDbAsync(db => db.PackageVariants.CountAsync()));
+    }
+}
+
+[Collection("pg")]
+public class SigningRotationTests(PostgresFixture pg)
+{
+    /// <summary>apt's rule: at least one good signature from a trusted key and no bad ones (signatures by unknown keys are ignored).</summary>
+    private static int Gpgv(string keyring, string dir, params string[] files)
+    {
+        var psi = new System.Diagnostics.ProcessStartInfo("gpgv") { RedirectStandardError = true, RedirectStandardOutput = true };
+        psi.ArgumentList.Add("--status-fd"); psi.ArgumentList.Add("1");
+        psi.ArgumentList.Add("--keyring"); psi.ArgumentList.Add(Path.Combine(dir, keyring));
+        foreach (var f in files) psi.ArgumentList.Add(Path.Combine(dir, f));
+        using var p = System.Diagnostics.Process.Start(psi)!;
+        var status = p.StandardOutput.ReadToEnd();
+        p.WaitForExit();
+        return status.Contains("] VALIDSIG ") && !status.Contains("] BADSIG ") ? 0 : 1;
+    }
+
+    [Fact]
+    public async Task Rotation_with_overlap_never_breaks_verification_for_old_or_updated_clients()
+    {
+        var (f, admin, _) = await Scenario.StartAsync(pg, x => x.Settings["REPOCUCK:ROLE"] = "web");
+        using var _ = f;
+        f.GitHub.AddRepo("acme/tool", 1);
+        f.GitHub.AddRelease(1, "v", false, ("a.deb", Scenario.Deb("tool", "1.0", "amd64")));
+        var (_, js) = await admin.Post("/admin/repositories", new { owner = "acme", name = "tool", architectures = new[] { "amd64" } });
+        await f.SyncAsync(js.GetProperty("id").GetGuid()); await f.PublishAsync();
+        var dir = Path.Combine(f.DataDir, "rot"); Directory.CreateDirectory(dir);
+
+        async Task Snapshot(string keyFile)
+        {
+            await File.WriteAllBytesAsync(Path.Combine(dir, keyFile), (await f.RawGet("/apt/repocuck.gpg")).Body);
+            await File.WriteAllBytesAsync(Path.Combine(dir, "Release"), (await f.RawGet("/apt/dists/stable/Release")).Body);
+            await File.WriteAllBytesAsync(Path.Combine(dir, "InRelease"), (await f.RawGet("/apt/dists/stable/InRelease")).Body);
+            await File.WriteAllBytesAsync(Path.Combine(dir, "Release.gpg"), (await f.RawGet("/apt/dists/stable/Release.gpg")).Body);
+        }
+
+        await Snapshot("old.gpg");
+        Assert.Equal(0, Gpgv("old.gpg", dir, "InRelease"));
+        var before = (await admin.Get("/admin/signing")).Body;
+        var oldFpr = before.GetProperty("fingerprint").GetString();
+        Assert.False(before.GetProperty("rotationInProgress").GetBoolean());
+
+        Assert.Equal(HttpStatusCode.Conflict, (await admin.Post("/admin/signing/rotate", new { action = "complete" })).Status);
+        Assert.Equal(HttpStatusCode.OK, (await admin.Post("/admin/signing/rotate", new { action = "start" })).Status);
+        Assert.Equal(HttpStatusCode.Conflict, (await admin.Post("/admin/signing/rotate", new { action = "start" })).Status);
+        await f.PublishAsync();
+        await Snapshot("both.gpg");
+        Assert.Equal(0, Gpgv("old.gpg", dir, "InRelease"));             // clients that still only trust the old key keep working
+        Assert.Equal(0, Gpgv("old.gpg", dir, "Release.gpg", "Release"));
+        Assert.Equal(0, Gpgv("both.gpg", dir, "InRelease"));            // clients that picked up the new keyring work too
+        Assert.Equal(0, Gpgv("both.gpg", dir, "Release.gpg", "Release"));
+        var during = (await admin.Get("/admin/signing")).Body;
+        Assert.True(during.GetProperty("rotationInProgress").GetBoolean());
+        Assert.Equal(2, during.GetProperty("keys").GetArrayLength());
+
+        Assert.Equal(HttpStatusCode.OK, (await admin.Post("/admin/signing/rotate", new { action = "complete" })).Status);
+        await f.PublishAsync();
+        await Snapshot("new.gpg");
+        Assert.Equal(0, Gpgv("new.gpg", dir, "InRelease"));
+        Assert.Equal(0, Gpgv("new.gpg", dir, "Release.gpg", "Release"));
+        Assert.NotEqual(0, Gpgv("old.gpg", dir, "InRelease"));          // the old key no longer vouches for new indices
+        var after = (await admin.Get("/admin/signing")).Body;
+        Assert.NotEqual(oldFpr, after.GetProperty("fingerprint").GetString());
+        Assert.False(after.GetProperty("rotationInProgress").GetBoolean());
+    }
+}
+
+[Collection("pg")]
+public class CliTests(PostgresFixture pg)
+{
+    [Fact]
+    public async Task Offline_cli_lists_resets_promotes_and_migrates()
+    {
+        var (f, admin, member) = await Scenario.StartAsync(pg, x => x.Settings["REPOCUCK:ROLE"] = "web");
+        using var _ = f;
+        var cfg = new Dictionary<string, string?> { ["ConnectionStrings:Postgres"] = f.ConnectionString, ["Storage:Root"] = f.DataDir };
+        async Task<(int Code, string Out)> Run(params string[] args)
+        {
+            var w = new StringWriter();
+            var code = await Web.Cli.RunAsync(args, cfg, w);
+            return (code, w.ToString());
+        }
+        var list = await Run("admin", "list");
+        Assert.Equal(0, list.Code); Assert.Contains("alice", list.Out); Assert.Contains("admin", list.Out);
+
+        var reset = await Run("admin", "reset", "--username", "alice");
+        Assert.Equal(0, reset.Code);
+        var temp = System.Text.RegularExpressions.Regex.Match(reset.Out, "password for alice: (\\S+)").Groups[1].Value;
+        Assert.NotEmpty(temp);
+        Assert.False(await f.NewClient().LoginAsync("alice", "alice-new-pass-1234"), "old password no longer works");
+        var fresh = f.NewClient();
+        Assert.True(await fresh.LoginAsync("alice", temp));
+        Assert.Equal("password_change_required", (await fresh.Get("/repositories")).Body.GetProperty("code").GetString());   // forced change
+
+        Assert.Equal(1, (await Run("admin", "reset", "--username", "nobody")).Code);
+        Assert.Equal(2, (await Run("admin", "reset")).Code);
+        Assert.Equal(0, (await Run("admin", "promote", "--username", "alice")).Code);
+        var promoted = f.NewClient(); Assert.True(await promoted.LoginAsync("alice", temp));
+        await promoted.Post("/me/password", new { current = temp, newPassword = "alice-after-reset-99" });
+        promoted = f.NewClient(); Assert.True(await promoted.LoginAsync("alice", "alice-after-reset-99"));
+        Assert.Equal("admin", (await promoted.Get("/me")).Body.GetProperty("role").GetString());
+        Assert.Equal(0, (await Run("--migrate")).Code);   // idempotent
     }
 }

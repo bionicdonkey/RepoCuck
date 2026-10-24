@@ -51,9 +51,17 @@ public interface IBlobStore
 
 public sealed record SigningResult(byte[] InRelease, byte[] ReleaseGpg);
 
+public sealed record SigningKeyInfo(string Fingerprint, DateTimeOffset? Expires, bool Active);
+
 public interface ISigner
 {
     string Fingerprint { get; }
+    IReadOnlyList<string> ActiveFingerprints { get; }
+    Task<IReadOnlyList<SigningKeyInfo>> ListKeysAsync(CancellationToken ct);
+    /// <summary>Generates a new key and signs with both old and new until <see cref="CompleteRotationAsync"/>.</summary>
+    Task<string> StartRotationAsync(CancellationToken ct);
+    /// <summary>Drops every signing key except the newest one.</summary>
+    Task CompleteRotationAsync(CancellationToken ct);
     Task EnsureReadyAsync(CancellationToken ct);
     Task<SigningResult> SignAsync(byte[] release, CancellationToken ct);
     /// <summary>Public key in binary OpenPGP form.</summary>

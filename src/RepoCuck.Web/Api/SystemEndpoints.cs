@@ -43,8 +43,10 @@ public static class SystemEndpoints
             foreach (var g in await db.ChangeRequests.Where(r => r.Status == RequestStatus.Pending).GroupBy(r => r.Kind).Select(g => new { g.Key, N = g.Count() }).ToListAsync(ct))
                 gauges.Add(($"repocuck_requests_pending{{kind=\"{g.Key}\"}}", g.N));
             var now = DateTimeOffset.UtcNow;
-            foreach (var s in await (from c in db.AptCurrent join gen in db.AptGenerations on c.GenerationId equals gen.Id
-                                     join su in db.AptSuites on c.SuiteId equals su.Id select new { su.Name, gen.ActivatedAt }).ToListAsync(ct))
+            foreach (var s in await (from c in db.AptCurrent
+                                     join gen in db.AptGenerations on c.GenerationId equals gen.Id
+                                     join su in db.AptSuites on c.SuiteId equals su.Id
+                                     select new { su.Name, gen.ActivatedAt }).ToListAsync(ct))
                 gauges.Add(($"repocuck_index_age_seconds{{suite=\"{s.Name}\"}}", s.ActivatedAt is null ? -1 : (now - s.ActivatedAt.Value).TotalSeconds));
             gauges.Add(("repocuck_blob_bytes", await db.Blobs.SumAsync(b => (long?)b.SizeBytes, ct) ?? 0));
             return Results.Text(m.Render(gauges), "text/plain; version=0.0.4");

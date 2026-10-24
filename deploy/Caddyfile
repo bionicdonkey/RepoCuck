@@ -1,0 +1,13 @@
+# Replace with your public hostname (must match REPOCUCK_BASE_URL).
+apt.example.com {
+    # apt downloads are already compressed; leave /apt/* untouched
+    @notapt not path /apt/*
+    encode @notapt zstd gzip
+    reverse_proxy app:8080 {
+        header_up X-Forwarded-Proto {scheme}
+        header_up X-Forwarded-Host {host}
+    }
+    header {
+        -Server
+    }
+}

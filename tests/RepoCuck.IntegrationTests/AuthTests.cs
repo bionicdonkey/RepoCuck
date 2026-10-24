@@ -23,6 +23,9 @@ public class AuthTests(PostgresFixture pg)
             Assert.Equal(HttpStatusCode.Forbidden, (await member.Get(path)).Status);
         Assert.Equal(HttpStatusCode.Forbidden, (await member.Post("/admin/repositories", new { owner = "a", name = "b", architectures = new[] { "amd64" } })).Status);
         Assert.Equal(HttpStatusCode.Forbidden, (await member.Post("/admin/apt/rebuild")).Status);
+        Assert.Equal(HttpStatusCode.Forbidden, (await member.Post("/admin/signing/rotate", new { action = "start" })).Status);
+        Assert.Equal(HttpStatusCode.Forbidden, (await member.Get("/admin/providers")).Status);
+        Assert.Equal(HttpStatusCode.Forbidden, (await member.Delete($"/admin/variants/{Guid.NewGuid()}")).Status);
         Assert.Equal(HttpStatusCode.Forbidden, (await member.Post($"/admin/requests/{Guid.NewGuid()}/approve")).Status);
         Assert.Equal(HttpStatusCode.OK, (await admin.Get("/admin/users")).Status);
     }
