@@ -11,10 +11,10 @@ namespace RepoCuck.Web.Infrastructure;
 
 public static class AuthSetup
 {
-    public const string Scheme = "repocuck";
-    public const string StampClaim = "rc:stamp";
-    public const string AbsoluteClaim = "rc:abs";
-    public const string MustChangeClaim = "rc:mustchange";
+    public const string Scheme = AuthClaims.Scheme;
+    public const string StampClaim = AuthClaims.StampClaim;
+    public const string AbsoluteClaim = AuthClaims.AbsoluteClaim;
+    public const string MustChangeClaim = AuthClaims.MustChangeClaim;
 
     public static void AddRepoCuckAuth(this IServiceCollection services, SecurityOptions sec, AuthOptions auth)
     {
@@ -85,15 +85,6 @@ public static class AuthSetup
     {
         // a fresh session must not be judged against a stale cached stamp
         ctx.RequestServices.GetRequiredService<IMemoryCache>().Remove("user:" + user.Id);
-        var claims = new List<Claim>
-        {
-            new(ClaimTypes.NameIdentifier, user.Id.ToString()), new(ClaimTypes.Name, user.Username),
-            new(ClaimTypes.Role, user.Role), new(StampClaim, user.SecurityStamp.ToString()),
-            new(AbsoluteClaim, DateTimeOffset.UtcNow.AddHours(auth.SessionAbsoluteHours).ToUnixTimeSeconds().ToString()),
-            new("display", user.DisplayName)
-        };
-        if (user.MustChangePassword) claims.Add(new Claim(MustChangeClaim, "1"));
-        var principal = new ClaimsPrincipal(new ClaimsIdentity(claims, Scheme, ClaimTypes.Name, ClaimTypes.Role));
-        await ctx.SignInAsync(Scheme, principal, new AuthenticationProperties { IsPersistent = false });
+        await ctx.SignInAsync(Scheme, AuthClaims.BuildPrincipal(user, auth), new AuthenticationProperties { IsPersistent = false });
     }
 }

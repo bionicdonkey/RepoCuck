@@ -1,0 +1,103 @@
+@page "/admin/providers"
+@inject IDbContextFactory<AppDbContext> Dbf
+@inject OidcSchemeManager Mgr
+@inject IHttpClientFactory Http
+@inject IOptions<AuthOptions> AuthOpt
+@inject IAuditService Audit
+@functions {
+    public List<IdentityProvider> Providers { get; set; } = [];
+    public Dictionary<Guid, List<RoleMapping>> Maps { get; set; } = [];
+    [BindProperty] public Api.ProviderBody Form { get; set; } = new(null, null, null, null, null, null, null, null, null, null, null, null, null);
+    [BindProperty] public string? MappingsText { get; set; }
+    public string? TestResult { get; set; }
+
+    public async Task OnGetAsync(CancellationToken ct)
+    {
+        await using var db = await Dbf.CreateDbContextAsync(ct);
+        Providers = await db.IdentityProviders.AsNoTracking().OrderBy(p => p.Slug).ToListAsync(ct);
+        Maps = (await db.RoleMappings.AsNoTracking().ToListAsync(ct)).GroupBy(m => m.ProviderId).ToDictionary(g => g.Key, g => g.ToList());
+    }
+
+    public async Task<IActionResult> OnPostCreateAsync(string slug, string displayName, string authority, string clientId, string? clientSecret, CancellationToken ct)
+    {
+        try
+        {
+            if (!System.Text.RegularExpressions.Regex.IsMatch(slug ?? "", "^[a-z0-9][a-z0-9-]{1,30}$")) throw new ServiceException("validation_error", "Invalid slug.");
+            if (!Uri.TryCreate(authority, UriKind.Absolute, out var u) || !(u.Scheme == "https" || (u.Scheme == "http" && AuthOpt.Value.AllowInsecureOidc))) throw new ServiceException("validation_error", "Authority must be an https URL.");
+            await using var db = await Dbf.CreateDbContextAsync(ct);
+            var p = new IdentityProvider { Id = Ids.New(), Slug = slug!, DisplayName = displayName, Authority = authority.TrimEnd('/'), ClientId = clientId, CreatedAt = DateTimeOffset.UtcNow };
+            if (!string.IsNullOrEmpty(clientSecret)) p.ClientSecretEnc = Mgr.ProtectSecret(clientSecret);
+            db.IdentityProviders.Add(p);
+            await db.SaveChangesAsync(ct);
+            await Mgr.RefreshAsync(ct);
+            await Audit.WriteAsync("provider.created", User.Id(), "provider", p.Id.ToString(), metadata: new { slug }, ct: ct);
+            TempData["Flash"] = "Provider created. Add group mappings below, then use Test.";
+        }
+        catch (ServiceException e) { TempData["Error"] = e.Message; }
+        return RedirectToPage();
+    }
+
+    public async Task<IActionResult> OnPostTestAsync(Guid id, CancellationToken ct)
+    {
+        await using var db = await Dbf.CreateDbContextAsync(ct);
+        var p = await db.IdentityProviders.AsNoTracking().FirstAsync(x => x.Id == id, ct);
+        TempData["Flash"] = System.Text.Json.JsonSerializer.Serialize(await Api.ProviderApi.TestAsync(p, Http.CreateClient(), ct));
+        return RedirectToPage();
+    }
+
+    public async Task<IActionResult> OnPostMappingsAsync(Guid id, CancellationToken ct)
+    {
+        // one mapping per line: "<claim value> = admin|member"
+        var items = new List<RoleMapping>();
+        foreach (var line in (MappingsText ?? "").Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var parts = line.Split('=', 2, StringSplitOptions.TrimEntries);
+            if (parts.Length != 2 || !Roles.IsValid(parts[1])) { TempData["Error"] = $"Bad mapping line: {line}"; return RedirectToPage(); }
+            items.Add(new RoleMapping { Id = Ids.New(), ProviderId = id, ClaimValue = parts[0], Role = parts[1], Priority = parts[1] == Roles.Admin ? 10 : 0 });
+        }
+        await using var db = await Dbf.CreateDbContextAsync(ct);
+        await db.RoleMappings.Where(m => m.ProviderId == id).ExecuteDeleteAsync(ct);
+        db.RoleMappings.AddRange(items.DistinctBy(i => i.ClaimValue));
+        await db.SaveChangesAsync(ct);
+        await Audit.WriteAsync("provider.mappings_replaced", User.Id(), "provider", id.ToString(), metadata: new { count = items.Count }, ct: ct);
+        TempData["Flash"] = "Mappings saved. They apply at each user's next sign-in.";
+        return RedirectToPage();
+    }
+
+    public async Task<IActionResult> OnPostToggleAsync(Guid id, bool enabled, CancellationToken ct)
+    {
+        await using var db = await Dbf.CreateDbContextAsync(ct);
+        await db.IdentityProviders.Where(p => p.Id == id).ExecuteUpdateAsync(s => s.SetProperty(p => p.Enabled, enabled), ct);
+        await Mgr.RefreshAsync(ct);
+        await Audit.WriteAsync("provider.updated", User.Id(), "provider", id.ToString(), metadata: new { enabled }, ct: ct);
+        return RedirectToPage();
+    }
+}
+@{ ViewData["Title"] = "SSO providers"; }
+<h1>Single sign-on (OpenID Connect)</h1>
+<p class="muted">Redirect URI to register at the provider: <code>@(Request.Scheme)://@Request.Host/signin-oidc/&lt;slug&gt;</code> · post-logout URI: <code>…/signout-callback-oidc/&lt;slug&gt;</code>. Authorization code flow with PKCE (S256).</p>
+@foreach (var p in Providers)
+{
+  <section class="card">
+    <h2 style="margin-top:0">@p.DisplayName <code>@p.Slug</code> <span class="badge @(p.Enabled ? "active" : "removed")">@(p.Enabled ? "enabled" : "disabled")</span></h2>
+    <p>@p.Authority · client <code>@p.ClientId</code> · secret @(p.ClientSecretEnc is not null || p.ClientSecretFile is not null ? "set" : "not set") · scopes <code>@p.Scopes</code> · groups claim <code>@p.GroupClaim</code></p>
+    <div class="row">
+      <form method="post" asp-page-handler="Test" asp-route-id="@p.Id"><button class="secondary" type="submit">Test discovery &amp; keys</button></form>
+      <form method="post" asp-page-handler="Toggle" asp-route-id="@p.Id" asp-route-enabled="@(!p.Enabled)"><button class="secondary" type="submit">@(p.Enabled ? "Disable" : "Enable")</button></form>
+    </div>
+    <form method="post" asp-page-handler="Mappings" asp-route-id="@p.Id" class="stack">
+      <label>Group → role mappings (one per line, <code>group = admin</code> or <code>group = member</code>; admin wins; unmapped users are members)
+        <textarea name="MappingsText" rows="4">@string.Join("\n", (Maps.TryGetValue(p.Id, out var ms) ? ms : []).Select(m => $"{m.ClaimValue} = {m.Role}"))</textarea></label>
+      <button type="submit">Save mappings</button>
+    </form>
+  </section>
+}
+<h2>Add a provider</h2>
+<form method="post" asp-page-handler="Create" class="stack">
+  <label>Slug (lowercase, used in URLs) <input name="slug" required pattern="[a-z0-9][a-z0-9-]{1,30}" /></label>
+  <label>Display name <input name="displayName" required /></label>
+  <label>Authority (issuer URL) <input name="authority" placeholder="https://idp.example.com/realms/main" required /></label>
+  <label>Client ID <input name="clientId" required /></label>
+  <label>Client secret (stored encrypted; leave empty for public clients) <input name="clientSecret" type="password" autocomplete="off" /></label>
+  <button type="submit">Add provider</button>
+</form>

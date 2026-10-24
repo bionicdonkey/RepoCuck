@@ -19,6 +19,8 @@ public sealed class AuthOptions
     public int SessionAbsoluteHours { get; set; } = 12;
     public int MaxFailedAttempts { get; set; } = 5;
     public int LockoutMinutes { get; set; } = 15;
+    /// <summary>Test/dev only: permit http:// OIDC authorities.</summary>
+    public bool AllowInsecureOidc { get; set; }
 }
 
 public sealed class LimitsOptions

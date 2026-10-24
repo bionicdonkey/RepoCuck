@@ -1,8 +1,12 @@
 @page "/account"
 @inject UserService Users
 @inject IOptions<AuthOptions> AuthOpt
+@inject IDbContextFactory<AppDbContext> Dbf
+@inject ExternalLoginService Ext
+@inject IAuthenticationSchemeProvider Schemes
 @functions {
     public User Me { get; set; } = new();
+    public List<(string Slug, string Name, bool Linked)> Providers { get; set; } = [];
     [BindProperty] public string? Current { get; set; }
     [BindProperty] public string NewPassword { get; set; } = "";
     [BindProperty] public string? Password { get; set; }
@@ -12,8 +16,26 @@
     public string[]? Recovery { get; set; }
     [BindProperty(SupportsGet = true)] public bool MustChange { get; set; }
 
-    private async Task Load(CancellationToken ct) => Me = await Users.FindAsync(User.RequireId(), ct) ?? new User();
+    private async Task Load(CancellationToken ct)
+    {
+        Me = await Users.FindAsync(User.RequireId(), ct) ?? new User();
+        await using var db = await Dbf.CreateDbContextAsync(ct);
+        var linked = await db.ExternalIdentities.AsNoTracking().Where(e => e.UserId == Me.Id).Select(e => e.ProviderId).ToListAsync(ct);
+        Providers = (await db.IdentityProviders.AsNoTracking().Where(p => p.Enabled || linked.Contains(p.Id)).OrderBy(p => p.DisplayName).ToListAsync(ct))
+            .Select(p => (p.Slug, p.DisplayName, linked.Contains(p.Id))).ToList();
+    }
     public Task OnGetAsync(CancellationToken ct) => Load(ct);
+
+    public async Task<IActionResult> OnPostLinkAsync(string slug)
+    {
+        var name = OidcSchemeManager.SchemeName(slug);
+        if (await Schemes.GetSchemeAsync(name) is null) return NotFound();
+        var props = new AuthenticationProperties { RedirectUri = "/account" };
+        props.Items["rc_link"] = User.RequireId().ToString();      // handled in OidcSchemeManager: re-authenticates (prompt=login) and links
+        return Challenge(props, name);
+    }
+
+    public Task<IActionResult> OnPostUnlinkAsync(string slug, CancellationToken ct) => Run(() => Ext.UnlinkAsync(User.RequireId(), slug, ct), "Provider unlinked.", ct);
 
     private async Task<IActionResult> Run(Func<Task> action, string ok, CancellationToken ct)
     {
@@ -85,6 +107,19 @@ else if (Me.TotpEnabled)
 else
 {
   <form method="post" asp-page-handler="TotpStart" class="stack"><label>Password <input asp-for="Password" type="password" required /></label><button type="submit">Enable two-factor</button></form>
+}
+@if (Request.Query["linked"].Count > 0) { <div class="flash">Provider linked.</div> }
+@if (Request.Query["linkError"].ToString() is { Length: > 0 } le) { <div class="flash error">@le</div> }
+@if (Providers.Count > 0)
+{
+  <h2>Linked sign-in providers</h2>
+  <table><tbody>
+  @foreach (var p in Providers) {
+    <tr><td>@p.Name</td><td>@(p.Linked ? "linked" : "not linked")</td><td>
+      @if (p.Linked) { <form method="post" asp-page-handler="Unlink" asp-route-slug="@p.Slug"><button class="secondary" type="submit">Unlink</button></form> }
+      else { <form method="post" asp-page-handler="Link" asp-route-slug="@p.Slug"><button class="secondary" type="submit">Link (re-authenticates)</button></form> }
+    </td></tr> }
+  </tbody></table>
 }
 <h2>Sessions</h2>
 <form method="post" asp-page-handler="Revoke"><button class="secondary" type="submit">Sign out everywhere</button></form>

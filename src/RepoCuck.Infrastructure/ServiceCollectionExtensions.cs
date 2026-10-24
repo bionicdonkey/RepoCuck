@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -66,6 +67,11 @@ public static class ServiceCollectionExtensions
         s.AddScoped<RequestService>();
         s.AddScoped<RepositoryAdminService>();
         s.AddScoped<UserService>();
+        s.AddScoped<ExternalLoginService>();
+        s.AddSingleton<OidcSchemeManager>();
+        // OpenIdConnect post-configuration gives dynamically added schemes their backchannel, state formats, etc.
+        s.TryAddEnumerable(ServiceDescriptor.Singleton<IPostConfigureOptions<Microsoft.AspNetCore.Authentication.OpenIdConnect.OpenIdConnectOptions>,
+            Microsoft.AspNetCore.Authentication.OpenIdConnect.OpenIdConnectPostConfigureOptions>());
         s.AddHostedService<Bootstrapper>();
         return s;
     }
@@ -138,6 +144,7 @@ public sealed class Bootstrapper(
         {
             await signer.EnsureReadyAsync(ct);
         }
+        await sp.GetRequiredService<OidcSchemeManager>().RefreshAsync(ct);
         if (!await db.Users.AnyAsync(ct))
         {
             var b = boot.Value;

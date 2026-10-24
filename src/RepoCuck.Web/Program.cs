@@ -3,7 +3,11 @@ using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.Options;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.EntityFrameworkCore;
 using RepoCuck.Application;
+using RepoCuck.Infrastructure.Auth;
+using RepoCuck.Infrastructure.Data;
 using RepoCuck.Infrastructure;
 using RepoCuck.Web.Api;
 using RepoCuck.Web.Infrastructure;
@@ -121,6 +125,14 @@ app.MapAptEndpoints(aptOpt.PathPrefix);
 var api = app.MapGroup("/api/v1").RequireAuthorization("Authenticated").RequireRateLimiting("api");
 api.MapCoreApi();
 api.MapAdminApi();
+app.MapGet("/auth/oidc/{slug}/signin", async (HttpContext ctx, string slug, string? returnUrl, IDbContextFactory<AppDbContext> dbf, IAuthenticationSchemeProvider schemes) =>
+{
+    await using var db = await dbf.CreateDbContextAsync();
+    var name = OidcSchemeManager.SchemeName(slug);
+    if (!await db.IdentityProviders.AnyAsync(p => p.Slug == slug && p.Enabled) || await schemes.GetSchemeAsync(name) is null) return Results.NotFound();
+    var target = !string.IsNullOrEmpty(returnUrl) && returnUrl.StartsWith('/') && !returnUrl.StartsWith("//") && !returnUrl.StartsWith("/\\") ? returnUrl : "/repos";
+    return Results.Challenge(new AuthenticationProperties { RedirectUri = target }, [name]);
+}).AllowAnonymous().RequireRateLimiting("login");
 app.MapRazorPages();
 app.MapGet("/", (HttpContext c) => Results.Redirect("/repos")).ExcludeFromDescription();
 

@@ -1,8 +1,18 @@
 @page "/auth/logout"
+@inject IAuthenticationSchemeProvider Schemes
 @functions {
     public IActionResult OnGet() => LocalRedirect("/repos");
     public async Task<IActionResult> OnPostAsync()
     {
+        var slug = User.FindFirst(AuthClaims.IdpClaim)?.Value;
+        var scheme = slug is null ? null : OidcSchemeManager.SchemeName(slug);
+        if (scheme is not null && await Schemes.GetSchemeAsync(scheme) is not null)
+        {
+            // RP-initiated logout: sends the user to the provider's end_session_endpoint (if advertised) and back to /login
+            await HttpContext.SignOutAsync(scheme, new AuthenticationProperties { RedirectUri = "/login" });
+            await HttpContext.SignOutAsync(AuthSetup.Scheme);
+            return new EmptyResult();
+        }
         await HttpContext.SignOutAsync(AuthSetup.Scheme);
         return LocalRedirect("/login");
     }

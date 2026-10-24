@@ -28,10 +28,12 @@ public static class CoreApi
         api.MapGet("/csrf", (HttpContext ctx, IAntiforgery af) => Results.Json(new { token = af.GetAndStoreTokens(ctx).RequestToken, header = ApiCsrfMiddleware.HeaderName }));
 
         // ---- profile ----
-        api.MapGet("/me", async (HttpContext ctx, UserService users, CancellationToken ct) =>
+        api.MapGet("/me", async (HttpContext ctx, UserService users, IDbContextFactory<AppDbContext> dbf, CancellationToken ct) =>
         {
             var u = await users.FindAsync(ctx.User.RequireId(), ct) ?? throw new ServiceException("unauthenticated", "Sign in required.", 401);
-            return Results.Json(new { u.Id, u.Username, u.DisplayName, u.Email, u.Role, totpEnabled = u.TotpEnabled, mustChangePassword = u.MustChangePassword, linkedProviders = Array.Empty<string>() });
+            await using var db = await dbf.CreateDbContextAsync(ct);
+            var linked = await (from e in db.ExternalIdentities.AsNoTracking() join pr in db.IdentityProviders on e.ProviderId equals pr.Id where e.UserId == u.Id select pr.Slug).ToListAsync(ct);
+            return Results.Json(new { u.Id, u.Username, u.DisplayName, u.Email, u.Role, totpEnabled = u.TotpEnabled, mustChangePassword = u.MustChangePassword, hasPassword = u.PasswordHash != null, linkedProviders = linked });
         });
         api.MapPost("/me/password", async (HttpContext ctx, PasswordBody b, UserService users, CancellationToken ct) =>
         {
@@ -48,6 +50,13 @@ public static class CoreApi
         api.MapPost("/me/totp/disable", async (HttpContext ctx, PasswordOnly b, UserService users, CancellationToken ct) =>
         {
             await users.DisableTotpAsync(ctx.User.RequireId(), b.Password, ct);
+            return Results.NoContent();
+        });
+        api.MapPost("/me/links/{slug}", (string slug) =>
+            Results.Json(new { startUrl = "/account", note = $"Linking '{slug}' must be started from the Account page so the browser can re-authenticate with the provider." }));
+        api.MapDelete("/me/links/{slug}", async (HttpContext ctx, string slug, ExternalLoginService ext, CancellationToken ct) =>
+        {
+            await ext.UnlinkAsync(ctx.User.RequireId(), slug, ct);
             return Results.NoContent();
         });
         api.MapPost("/me/sessions/revoke-all", async (HttpContext ctx, UserService users, CancellationToken ct) =>

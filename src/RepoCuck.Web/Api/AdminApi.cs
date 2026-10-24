@@ -23,6 +23,7 @@ public static class AdminApi
     public static void MapAdminApi(this RouteGroupBuilder api)
     {
         var a = api.MapGroup("/admin").RequireAuthorization("Admin");
+        a.MapProviderApi();
 
         // ---- requests ----
         a.MapGet("/requests", async (IDbContextFactory<AppDbContext> dbf, string? status, CancellationToken ct) =>

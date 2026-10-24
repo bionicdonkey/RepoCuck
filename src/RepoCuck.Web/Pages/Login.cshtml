@@ -3,6 +3,7 @@
 @inject IOptions<AuthOptions> Auth
 @inject IAuditService Audit
 @inject SetupTokenService Setup
+@inject IDbContextFactory<AppDbContext> Dbf
 @functions {
     [BindProperty] public string Username { get; set; } = "";
     [BindProperty] public string Password { get; set; } = "";
@@ -11,18 +12,28 @@
     public string? Error { get; set; }
     public bool NeedTotp { get; set; }
     public bool NeedSetup { get; set; }
+    public List<(string Slug, string Name)> Providers { get; set; } = [];
+    [BindProperty(SupportsGet = true)] public string? ErrorMessage { get; set; }
 
     public async Task<IActionResult> OnGetAsync(CancellationToken ct)
     {
         if (User.Identity?.IsAuthenticated == true) return LocalRedirect("/repos");
         NeedSetup = Setup.IsActive && !await Users.AnyUsersAsync(ct);
+        await LoadProviders(ct);
         return Page();
+    }
+
+    private async Task LoadProviders(CancellationToken ct)
+    {
+        await using var db = await Dbf.CreateDbContextAsync(ct);
+        Providers = (await db.IdentityProviders.AsNoTracking().Where(p => p.Enabled).OrderBy(p => p.DisplayName).Select(p => new { p.Slug, p.DisplayName }).ToListAsync(ct))
+            .Select(p => (p.Slug, p.DisplayName)).ToList();
     }
 
     public async Task<IActionResult> OnPostAsync(CancellationToken ct)
     {
         var r = await Users.LoginAsync(Username, Password, TotpCode, HttpContext.Connection.RemoteIpAddress, HttpContext.TraceIdentifier, ct);
-        if (!r.Success) { Error = r.Error; NeedTotp = r.TotpRequired; return Page(); }
+        if (!r.Success) { Error = r.Error; NeedTotp = r.TotpRequired; await LoadProviders(ct); return Page(); }
         await AuthSetup.SignInAsync(HttpContext, r.User!, Auth.Value);
         if (r.User!.MustChangePassword) return LocalRedirect("/account?mustChange=1");
         return LocalRedirect(Url.IsLocalUrl(ReturnUrl) ? ReturnUrl! : "/repos");
@@ -32,6 +43,7 @@
 <h1>Sign in</h1>
 @if (NeedSetup) { <div class="flash">First run: <a href="/setup">create the first administrator</a>.</div> }
 @if (Error is not null) { <div class="flash error" role="alert">@Error</div> }
+@if (Request.Query["error"].ToString() is { Length: > 0 } qe) { <div class="flash error" role="alert">@qe</div> }
 <form method="post" class="stack">
   <input type="hidden" asp-for="ReturnUrl" />
   <label>Username <input asp-for="Username" autocomplete="username" required autofocus /></label>
@@ -40,3 +52,10 @@
   { <label>Verification code or recovery code <input asp-for="TotpCode" autocomplete="one-time-code" inputmode="numeric" /></label> }
   <button type="submit">Sign in</button>
 </form>
+@if (Providers.Count > 0)
+{
+  <h2>Or sign in with</h2>
+  <div class="row">
+  @foreach (var p in Providers) { <a class="btn secondary" style="background:transparent;color:var(--accent)" href="/auth/oidc/@p.Slug/signin?returnUrl=@Uri.EscapeDataString(ReturnUrl ?? "/repos")">@p.Name</a> }
+  </div>
+}
