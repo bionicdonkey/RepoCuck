@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# Scans the commits about to be pushed for secrets with gitleaks (via Docker) and aborts the push on a finding.
+# Enable once per clone:  git config core.hooksPath .githooks
+# Bypass in an emergency:  git push --no-verify   (don't)
+set -euo pipefail
+
+zero=0000000000000000000000000000000000000000
+root=$(git rev-parse --show-toplevel)
+remote_name=$1
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+  [ "$local_sha" = "$zero" ] && continue                 # deleting a ref
+  if [ "$remote_sha" = "$zero" ]; then
+    range="$local_sha --not --remotes=$remote_name"      # new branch: everything the remote doesn't have
+  else
+    range="$remote_sha..$local_sha"
+  fi
+  git rev-list -n1 $range >/dev/null 2>&1 || continue
+  [ -z "$(git rev-list -n1 $range)" ] && continue
+
+  echo "gitleaks: scanning $range"
+  if ! docker run --rm -v "$root:/repo:ro" zricethezav/gitleaks:latest \
+      detect --source /repo --log-opts="$range" --redact --no-banner; then
+    echo "gitleaks found possible secrets - push aborted. Fix them, or add a reviewed false positive to .gitleaksignore." >&2
+    exit 1
+  fi
+done
