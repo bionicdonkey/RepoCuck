@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # The build always runs natively; the published output is portable (framework-dependent), so one build serves every target platform.
-FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:11.0 AS build
 ARG VERSION=0.0.0-dev
 WORKDIR /src
 COPY Directory.Packages.props Directory.Build.props NuGet.config ./
